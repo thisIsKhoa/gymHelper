@@ -1,0 +1,120 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum UserGoal {
+  MUSCLE_GAIN
+  FAT_LOSS
+  STRENGTH
+}
+
+model User {
+  id             String              @id @default(cuid())
+  email          String              @unique
+  passwordHash   String
+  name           String
+  level          UserLevel           @default(BEGINNER)
+  goal           UserGoal            @default(MUSCLE_GAIN)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  workoutSessions WorkoutSession[]
+  personalRecords PersonalRecord[]
+  bodyMetrics     BodyMetric[]
+  trainingPlans   TrainingPlan[]
+}
+
+model WorkoutSession {
+  id          String        @id @default(cuid())
+  userId      String
+  sessionDate DateTime      @db.Date
+  startedAt   DateTime
+  endedAt     DateTime?
+  notes       String?
+  totalVolume Float         @default(0)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entries     WorkoutEntry[]
+
+  @@index([userId, sessionDate])
+}
+
+model WorkoutEntry {
+  id          String         @id @default(cuid())
+  sessionId   String
+  exerciseName String
+  sets        Int
+  reps        Int
+  weightKg    Float?
+  durationSec Int?
+  restSeconds Int?
+  volume      Float          @default(0)
+  createdAt   DateTime       @default(now())
+  session     WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, exerciseName])
+}
+
+model PersonalRecord {
+  id           String   @id @default(cuid())
+  userId       String
+  exerciseName String
+  bestWeightKg Float    @default(0)
+  bestVolume   Float    @default(0)
+  achievedAt   DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, exerciseName])
+}
+
+model BodyMetric {
+  id           String   @id @default(cuid())
+  userId       String
+  loggedAt     DateTime @db.Date
+  weightKg     Float
+  bodyFatPct   Float?
+  muscleMassKg Float?
+  notes        String?
+  createdAt    DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, loggedAt])
+}
+
+model TrainingPlan {
+  id         String            @id @default(cuid())
+  userId     String
+  name       String
+  goal       UserGoal
+  level      UserLevel
+  isTemplate Boolean           @default(false)
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  days       TrainingPlanDay[]
+}
+
+model TrainingPlanDay {
+  id        String       @id @default(cuid())
+  planId    String
+  dayOfWeek Int
+  focus     String
+  exercises Json
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  plan      TrainingPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, dayOfWeek])
+}

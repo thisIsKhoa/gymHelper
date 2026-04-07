@@ -1,0 +1,40 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "API: Debug",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/apps/api",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "--import",
+        "tsx",
+        "--enable-source-maps"
+      ],
+      "program": "${workspaceFolder}/apps/api/src/index.ts",
+      "envFile": "${workspaceFolder}/apps/api/.env",
+      "console": "integratedTerminal",
+      "skipFiles": [
+        "<node_internals>/**"
+      ]
+    },
+    {
+      "name": "Web: Open in Chrome",
+      "type": "pwa-chrome",
+      "request": "launch",
+      "url": "http://localhost:5173",
+      "webRoot": "${workspaceFolder}/apps/web/src"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Fullstack: API Debug + Web",
+      "configurations": [
+        "API: Debug",
+        "Web: Open in Chrome"
+      ],
+      "preLaunchTask": "Run Web Dev"
+    }
+  ]
+}

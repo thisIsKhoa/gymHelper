@@ -1,0 +1,130 @@
+@import 'tailwindcss';
+
+:root {
+    --bg: #f6f7fb;
+    --surface: rgba(255, 255, 255, 0.74);
+    --surface-solid: #ffffff;
+    --text: #111827;
+    --muted: #4b5563;
+    --border: rgba(17, 24, 39, 0.12);
+    --accent: #ff6b35;
+    --accent-alt: #00897b;
+    --ring: rgba(255, 107, 53, 0.32);
+    --card-shadow: 0 25px 80px rgba(16, 24, 40, 0.12);
+}
+
+:root[data-theme='dark'] {
+    --bg: #0a0e17;
+    --surface: rgba(17, 25, 40, 0.72);
+    --surface-solid: #111827;
+    --text: #f9fafb;
+    --muted: #9ca3af;
+    --border: rgba(255, 255, 255, 0.14);
+    --accent: #ff8754;
+    --accent-alt: #2dd4bf;
+    --ring: rgba(45, 212, 191, 0.32);
+    --card-shadow: 0 25px 80px rgba(0, 0, 0, 0.45);
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+    min-height: 100%;
+}
+
+body {
+    margin: 0;
+    font-family: 'Sora', sans-serif;
+    color: var(--text);
+    background:
+        radial-gradient(circle at 14% 14%, color-mix(in oklab, var(--accent) 18%, transparent), transparent 35%),
+        radial-gradient(circle at 84% 4%, color-mix(in oklab, var(--accent-alt) 16%, transparent), transparent 34%),
+        linear-gradient(150deg, var(--bg), color-mix(in oklab, var(--bg) 86%, #0a0e17 14%));
+}
+
+h1,
+h2,
+h3,
+h4 {
+    font-family: 'Space Grotesk', sans-serif;
+    margin: 0;
+}
+
+p {
+    margin: 0;
+}
+
+.app-shell {
+    position: relative;
+}
+
+.app-shell::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+        linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+    background-size: 40px 40px;
+    mix-blend-mode: soft-light;
+    opacity: 0.3;
+}
+
+.glass-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: var(--card-shadow);
+    backdrop-filter: blur(16px);
+    border-radius: 1.25rem;
+}
+
+.section-enter {
+    animation: section-enter 420ms cubic-bezier(0.21, 0.95, 0.3, 1) both;
+}
+
+@keyframes section-enter {
+    from {
+        opacity: 0;
+        transform: translateY(20px) scale(0.985);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.pulse-ring {
+    position: relative;
+}
+
+.pulse-ring::after {
+    content: '';
+    position: absolute;
+    inset: -8px;
+    border-radius: inherit;
+    border: 2px solid var(--ring);
+    opacity: 0;
+    animation: pulse-ring 1.6s infinite;
+}
+
+@keyframes pulse-ring {
+    0% {
+        transform: scale(0.8);
+        opacity: 0;
+    }
+
+    50% {
+        opacity: 0.8;
+    }
+
+    100% {
+        transform: scale(1.1);
+        opacity: 0;
+    }
+}
