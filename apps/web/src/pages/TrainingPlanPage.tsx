@@ -11,6 +11,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { Card } from "../components/ui/Card.tsx";
+import { LoadingState } from "../components/ui/LoadingState.tsx";
 import { apiRequest } from "../lib/api.ts";
 import type { ExerciseLibraryItem } from "../types/workout.ts";
 
@@ -460,7 +461,7 @@ export function TrainingPlanPage() {
   };
 
   if (isLoading) {
-    return <p className="text-sm text-[var(--muted)]">Loading plans...</p>;
+    return <LoadingState message="Loading plans..." cardCount={3} />;
   }
 
   if (error) {

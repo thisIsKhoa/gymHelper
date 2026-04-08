@@ -10,6 +10,7 @@ import {
 
 import { ChartContainer } from "../components/ui/ChartContainer.tsx";
 import { Card } from "../components/ui/Card.tsx";
+import { LoadingState } from "../components/ui/LoadingState.tsx";
 import { apiRequest } from "../lib/api.ts";
 
 interface BodyMetricInput {
@@ -81,9 +82,7 @@ export function BodyMetricsPage() {
   };
 
   if (isLoading) {
-    return (
-      <p className="text-sm text-[var(--muted)]">Loading body metrics...</p>
-    );
+    return <LoadingState message="Loading body metrics..." cardCount={2} />;
   }
 
   if (error) {

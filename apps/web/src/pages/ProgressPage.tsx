@@ -12,6 +12,7 @@ import {
 
 import { ChartContainer } from "../components/ui/ChartContainer.tsx";
 import { Card } from "../components/ui/Card.tsx";
+import { LoadingState } from "../components/ui/LoadingState.tsx";
 import { apiRequest } from "../lib/api.ts";
 import type { ExerciseLibraryItem } from "../types/workout.ts";
 
@@ -104,7 +105,7 @@ export function ProgressPage() {
   }, [selectedExercise, weeks]);
 
   if (isLoading) {
-    return <p className="text-sm text-[var(--muted)]">Loading progress...</p>;
+    return <LoadingState message="Loading progress..." cardCount={3} />;
   }
 
   if (error) {

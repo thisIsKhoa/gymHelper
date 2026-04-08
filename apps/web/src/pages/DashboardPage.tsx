@@ -14,6 +14,7 @@ import {
 
 import { ChartContainer } from "../components/ui/ChartContainer.tsx";
 import { Card } from "../components/ui/Card.tsx";
+import { LoadingState } from "../components/ui/LoadingState.tsx";
 import { apiRequest } from "../lib/api.ts";
 
 function formatShortDate(value: string) {
@@ -117,7 +118,7 @@ export function DashboardPage() {
   const latestBench = data?.benchProgressByWeek.at(-1)?.maxWeightKg ?? 0;
 
   if (isLoading) {
-    return <p className="text-sm text-[var(--muted)]">Loading dashboard...</p>;
+    return <LoadingState message="Loading dashboard..." cardCount={4} />;
   }
 
   if (error) {
