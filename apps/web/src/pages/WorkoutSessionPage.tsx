@@ -1,19 +1,90 @@
 import type { WorkoutSessionInput } from "@gymhelper/types";
-import { Save } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
-
 import {
-  ExerciseLogger,
-  type ExerciseEntryInput,
-} from "../components/workout/ExerciseLogger.tsx";
+  ArrowDownToLine,
+  CheckCircle2,
+  Clock3,
+  ClipboardList,
+  Save,
+  WifiOff,
+  Zap,
+} from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+
 import { RestTimer } from "../components/workout/RestTimer.tsx";
 import { Card } from "../components/ui/Card.tsx";
-import { apiRequest } from "../lib/api.ts";
+import { apiRequest, getAuthToken } from "../lib/api.ts";
 import {
-  calculateSetVolume,
-  mergePersonalRecord,
-  type PersonalRecord,
-} from "../lib/pr.ts";
+  enqueueWorkout,
+  getQueuedWorkouts,
+  replaceQueuedWorkouts,
+  type QueuedWorkout,
+} from "../lib/offline-workout-queue.ts";
+import { estimateOneRepMax, calculateVolume } from "../lib/workout-utils.ts";
+import type {
+  ExerciseLibraryItem,
+  WorkoutSuggestion,
+} from "../types/workout.ts";
+
+interface ExerciseEntryInput {
+  id: string;
+  exerciseName: string;
+  sets: number;
+  reps: number;
+  weightKg?: number;
+  rpe?: number;
+  isCompleted: boolean;
+  durationSec?: number;
+  restSeconds: number;
+}
+
+interface SessionHistoryItem {
+  id: string;
+  sessionDate: string;
+  totalVolume: number;
+  entries: Array<{
+    exerciseName: string;
+    volume: number;
+    weightKg?: number | null;
+  }>;
+}
+
+interface SessionComparison {
+  currentSession: SessionHistoryItem;
+  previousSession: SessionHistoryItem | null;
+  comparisons: Array<{
+    exerciseName: string;
+    currentTopWeightKg: number;
+    previousTopWeightKg: number;
+    deltaTopWeightKg: number;
+    currentVolume: number;
+    previousVolume: number;
+    deltaVolume: number;
+  }>;
+}
+
+interface SessionPlanExercise {
+  exerciseName: string;
+  sets: number;
+  reps: number;
+  targetWeightKg?: number;
+  restSeconds?: number;
+}
+
+interface SessionPlanTemplate {
+  date: string;
+  dayOfWeek: number;
+  planId: string;
+  planName: string;
+  focus: string;
+  exercises: SessionPlanExercise[];
+}
+
+interface PlannedQueueItem extends SessionPlanExercise {
+  id: string;
+  completed: boolean;
+}
+
+const ACTIVE_SESSION_PLAN_ID_KEY = "gymhelper-active-session-plan-id";
 
 function toWorkoutSessionInput(
   entries: ExerciseEntryInput[],
@@ -29,6 +100,8 @@ function toWorkoutSessionInput(
       sets: entry.sets,
       reps: entry.reps,
       weightKg: entry.weightKg,
+      rpe: entry.rpe,
+      isCompleted: entry.isCompleted,
       durationSec: entry.durationSec,
       restSeconds: entry.restSeconds,
     })),
@@ -37,30 +110,308 @@ function toWorkoutSessionInput(
 
 export function WorkoutSessionPage() {
   const [entries, setEntries] = useState<ExerciseEntryInput[]>([]);
+  const [library, setLibrary] = useState<ExerciseLibraryItem[]>([]);
+  const [selectedExercise, setSelectedExercise] = useState("Bench Press");
+  const [sets, setSets] = useState(1);
+  const [reps, setReps] = useState(8);
+  const [weightKg, setWeightKg] = useState<number>(0);
+  const [rpe, setRpe] = useState<number | "">("");
+  const [restSeconds, setRestSeconds] = useState(90);
+  const [isCompleted, setIsCompleted] = useState(true);
   const [notes, setNotes] = useState("");
+  const [suggestion, setSuggestion] = useState<WorkoutSuggestion | null>(null);
+  const [sessionPlan, setSessionPlan] = useState<SessionPlanTemplate | null>(
+    null,
+  );
+  const [plannedQueue, setPlannedQueue] = useState<PlannedQueueItem[]>([]);
+  const [activePlannedExerciseId, setActivePlannedExerciseId] = useState<
+    string | null
+  >(null);
+  const [history, setHistory] = useState<SessionHistoryItem[]>([]);
+  const [comparison, setComparison] = useState<SessionComparison | null>(null);
+  const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(
+    null,
+  );
+  const [queue, setQueue] = useState<QueuedWorkout[]>([]);
+  const [timerStartKey, setTimerStartKey] = useState(0);
+  const [timerStartSeconds, setTimerStartSeconds] = useState(90);
   const [status, setStatus] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   const startedAt = useRef(new Date());
 
-  const totalVolume = useMemo(() => {
-    return entries.reduce((acc, entry) => acc + calculateSetVolume(entry), 0);
-  }, [entries]);
-
-  const livePrs = useMemo(() => {
-    const map = new Map<string, PersonalRecord>();
-
-    for (const entry of entries) {
-      map.set(
-        entry.exerciseName,
-        mergePersonalRecord(
-          map.get(entry.exerciseName),
-          entry.exerciseName,
-          entry,
-        ),
-      );
+  const applyPlannedExercise = (
+    item: SessionPlanExercise,
+    plannedExerciseId?: string,
+  ) => {
+    if (plannedExerciseId) {
+      setActivePlannedExerciseId(plannedExerciseId);
     }
 
-    return Array.from(map.values());
+    setSelectedExercise(item.exerciseName);
+    setSets(item.sets);
+    setReps(item.reps);
+
+    if (typeof item.targetWeightKg === "number") {
+      setWeightKg(item.targetWeightKg);
+    }
+
+    if (typeof item.restSeconds === "number") {
+      setRestSeconds(item.restSeconds);
+    }
+
+    setStatus(`Loaded ${item.exerciseName} into the logger.`);
+  };
+
+  const logPlannedExercise = (item: PlannedQueueItem) => {
+    const rest =
+      typeof item.restSeconds === "number" && item.restSeconds > 0
+        ? item.restSeconds
+        : restSeconds;
+
+    applyPlannedExercise(item, item.id);
+
+    const next: ExerciseEntryInput = {
+      id: crypto.randomUUID(),
+      exerciseName: item.exerciseName.trim(),
+      sets: item.sets,
+      reps: item.reps,
+      weightKg:
+        typeof item.targetWeightKg === "number" && item.targetWeightKg > 0
+          ? item.targetWeightKg
+          : undefined,
+      rpe: undefined,
+      isCompleted: true,
+      restSeconds: rest,
+    };
+
+    setEntries((current) => [next, ...current]);
+    markPlannedExerciseCompleted(next.exerciseName);
+    setTimerStartSeconds(rest);
+    setTimerStartKey((key) => key + 1);
+    setStatus(`Logged planned set for ${item.exerciseName}.`);
+  };
+
+  const markPlannedExerciseCompleted = (exerciseName: string) => {
+    const normalized = exerciseName.trim().toLowerCase();
+
+    setPlannedQueue((current) => {
+      const index = current.findIndex(
+        (item) =>
+          !item.completed &&
+          item.exerciseName.trim().toLowerCase() === normalized,
+      );
+
+      if (index === -1) {
+        return current;
+      }
+
+      const next = [...current];
+      const target = next[index];
+      if (!target) {
+        return current;
+      }
+
+      next[index] = {
+        ...target,
+        completed: true,
+      };
+
+      return next;
+    });
+  };
+
+  const loadLibrary = async () => {
+    try {
+      const result = await apiRequest<ExerciseLibraryItem[]>(
+        "/exercises",
+        "GET",
+      );
+      setLibrary(result);
+    } catch {
+      setLibrary([]);
+    }
+  };
+
+  const loadHistory = async () => {
+    try {
+      const result = await apiRequest<SessionHistoryItem[]>(
+        "/workouts/history?limit=8",
+        "GET",
+      );
+      setHistory(result);
+      if (result[0]) {
+        setSelectedHistoryId(result[0].id);
+        void loadComparison(result[0].id);
+      }
+    } catch {
+      setHistory([]);
+    }
+  };
+
+  const loadSessionPlan = async () => {
+    try {
+      const preferredPlanId =
+        typeof window === "undefined"
+          ? null
+          : (window.localStorage.getItem(ACTIVE_SESSION_PLAN_ID_KEY)?.trim() ??
+            null);
+
+      const endpoint = preferredPlanId
+        ? `/plans/session-template?planId=${encodeURIComponent(preferredPlanId)}`
+        : "/plans/session-template";
+
+      const result = await apiRequest<SessionPlanTemplate | null>(
+        endpoint,
+        "GET",
+      );
+      setSessionPlan(result);
+
+      if (!result || result.exercises.length === 0) {
+        setPlannedQueue([]);
+        setActivePlannedExerciseId(null);
+        return;
+      }
+
+      const queue = result.exercises.map((exercise) => ({
+        id: crypto.randomUUID(),
+        completed: false,
+        ...exercise,
+      }));
+
+      setPlannedQueue(queue);
+
+      const first = queue[0];
+      if (first) {
+        applyPlannedExercise(first, first.id);
+      }
+    } catch {
+      setSessionPlan(null);
+      setPlannedQueue([]);
+      setActivePlannedExerciseId(null);
+    }
+  };
+
+  useEffect(() => {
+    setQueue(getQueuedWorkouts());
+    void loadLibrary();
+    void loadSessionPlan();
+    void loadHistory();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadSuggestion() {
+      if (!selectedExercise.trim()) {
+        return;
+      }
+
+      try {
+        const result = await apiRequest<WorkoutSuggestion>(
+          `/workouts/suggestion?exerciseName=${encodeURIComponent(selectedExercise)}`,
+          "GET",
+        );
+
+        if (cancelled) {
+          return;
+        }
+
+        setSuggestion(result);
+        if (result.suggestedWeightKg !== null) {
+          setWeightKg(result.suggestedWeightKg);
+        }
+        setRestSeconds(result.suggestedRestSeconds);
+      } catch {
+        if (!cancelled) {
+          setSuggestion(null);
+        }
+      }
+    }
+
+    void loadSuggestion();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedExercise]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isTyping =
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA" ||
+        (target?.getAttribute("contenteditable") ?? "") === "true";
+
+      if (isTyping) {
+        return;
+      }
+
+      if (event.key.toLowerCase() === "l") {
+        event.preventDefault();
+        logEntry();
+      }
+
+      if (event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        void saveWorkout();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [
+    selectedExercise,
+    sets,
+    reps,
+    weightKg,
+    rpe,
+    restSeconds,
+    isCompleted,
+    notes,
+    entries,
+  ]);
+
+  const totalVolume = useMemo(() => {
+    return entries.reduce((acc, entry) => acc + calculateVolume(entry), 0);
   }, [entries]);
+
+  const maxEstimatedOneRm = useMemo(() => {
+    return entries.reduce((acc, entry) => {
+      const estimated = estimateOneRepMax(entry.weightKg, entry.reps);
+      return Math.max(acc, estimated);
+    }, 0);
+  }, [entries]);
+
+  const plannedCompletedCount = useMemo(() => {
+    return plannedQueue.filter((item) => item.completed).length;
+  }, [plannedQueue]);
+
+  const logEntry = () => {
+    if (!selectedExercise.trim()) {
+      setStatus("Choose an exercise before logging.");
+      return;
+    }
+
+    const next: ExerciseEntryInput = {
+      id: crypto.randomUUID(),
+      exerciseName: selectedExercise.trim(),
+      sets,
+      reps,
+      weightKg: weightKg > 0 ? weightKg : undefined,
+      rpe: rpe === "" ? undefined : rpe,
+      isCompleted,
+      restSeconds,
+    };
+
+    setEntries((current) => [next, ...current]);
+    markPlannedExerciseCompleted(next.exerciseName);
+    setStatus(
+      `Logged ${sets}x${reps} for ${next.exerciseName}. Rest timer auto-started.`,
+    );
+    setTimerStartSeconds(restSeconds);
+    setTimerStartKey((key) => key + 1);
+  };
 
   const saveWorkout = async () => {
     if (entries.length === 0) {
@@ -69,18 +420,102 @@ export function WorkoutSessionPage() {
     }
 
     const payload = toWorkoutSessionInput(entries, notes, startedAt.current);
+    setIsSaving(true);
 
     try {
       await apiRequest("/workouts", "POST", {
         ...payload,
         sessionDate: new Date().toISOString(),
       });
-      setStatus("Workout saved to API successfully.");
+      setStatus("Workout saved and synced.");
+      setEntries([]);
+      setNotes("");
+      startedAt.current = new Date();
+      await loadHistory();
     } catch (error) {
+      const queued = enqueueWorkout({
+        ...payload,
+        sessionDate: new Date().toISOString(),
+      });
+      setQueue(queued);
       setStatus(
         error instanceof Error
-          ? `Save failed: ${error.message}`
-          : "Save failed: API unavailable.",
+          ? `Offline mode: workout queued (${error.message})`
+          : "Offline mode: workout queued for later sync.",
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const syncQueuedWorkouts = async () => {
+    const queued = getQueuedWorkouts();
+    if (queued.length === 0) {
+      setStatus("No queued workouts.");
+      return;
+    }
+
+    const failed: QueuedWorkout[] = [];
+
+    for (const item of queued) {
+      try {
+        await apiRequest("/workouts", "POST", item.payload);
+      } catch {
+        failed.push(item);
+      }
+    }
+
+    replaceQueuedWorkouts(failed);
+    setQueue(failed);
+    if (failed.length === 0) {
+      setStatus("All offline workouts synced.");
+      await loadHistory();
+    } else {
+      setStatus(`${failed.length} workout(s) still queued.`);
+    }
+  };
+
+  const loadComparison = async (sessionId: string) => {
+    setSelectedHistoryId(sessionId);
+    try {
+      const result = await apiRequest<SessionComparison>(
+        `/workouts/compare?currentSessionId=${encodeURIComponent(sessionId)}`,
+        "GET",
+      );
+      setComparison(result);
+    } catch {
+      setComparison(null);
+    }
+  };
+
+  const exportCsv = async () => {
+    try {
+      const token = getAuthToken();
+      const response = await fetch(
+        `${import.meta.env.VITE_API_URL ?? "http://localhost:4000/api/v1"}/workouts/export/csv`,
+        {
+          method: "GET",
+          headers: {
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error("Export failed");
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `workouts-${new Date().toISOString().slice(0, 10)}.csv`;
+      anchor.click();
+      window.URL.revokeObjectURL(url);
+      setStatus("CSV export downloaded.");
+    } catch (error) {
+      setStatus(
+        error instanceof Error ? error.message : "Failed to export CSV.",
       );
     }
   };
@@ -89,18 +524,262 @@ export function WorkoutSessionPage() {
     <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
       <div className="space-y-4">
         <Card
-          title="Live Workout Tracker"
-          subtitle="Log sets, reps, load, duration, and rest targets in real time"
+          title="Start Workout"
+          subtitle="Fast one-hand set logging with smart overload support"
         >
-          <ExerciseLogger
-            onAdd={(entry) => setEntries((current) => [entry, ...current])}
-          />
+          {sessionPlan ? (
+            <div className="mb-4 rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] p-3">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="inline-flex items-center gap-2 text-sm font-semibold">
+                    <ClipboardList size={16} /> {sessionPlan.planName} ·{" "}
+                    {sessionPlan.focus}
+                  </p>
+                  <p className="text-xs text-[var(--muted)]">
+                    Auto loaded for this session · {plannedCompletedCount}/
+                    {plannedQueue.length} completed
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => void loadSessionPlan()}
+                  className="rounded-lg border border-[var(--border)] px-2 py-1 text-xs"
+                >
+                  Reload plan
+                </button>
+              </div>
+
+              <div className="space-y-2">
+                {plannedQueue.map((item) => {
+                  const isActive = activePlannedExerciseId === item.id;
+
+                  return (
+                    <div
+                      key={item.id}
+                      className={`flex items-center justify-between gap-2 rounded-lg border px-2 py-1.5 ${
+                        isActive
+                          ? "border-[var(--accent)] bg-[color-mix(in oklab,var(--accent) 12%,transparent)]"
+                          : "border-[var(--border)]"
+                      }`}
+                    >
+                      <div>
+                        <p className="text-sm font-medium">
+                          {item.exerciseName}
+                        </p>
+                        <p className="text-xs text-[var(--muted)]">
+                          {item.sets} x {item.reps}
+                          {typeof item.targetWeightKg === "number"
+                            ? ` @ ${item.targetWeightKg}kg`
+                            : ""}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {item.completed ? (
+                          <span className="inline-flex items-center gap-1 text-xs text-emerald-400">
+                            <CheckCircle2 size={14} /> Done
+                          </span>
+                        ) : isActive ? (
+                          <span className="inline-flex items-center gap-1 text-xs text-[var(--accent)]">
+                            In form
+                          </span>
+                        ) : null}
+
+                        <button
+                          type="button"
+                          onClick={() => applyPlannedExercise(item, item.id)}
+                          className="cursor-pointer rounded-md border border-[var(--border)] px-2 py-1 text-xs"
+                        >
+                          {isActive ? "Using" : "Use"}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => logPlannedExercise(item)}
+                          disabled={item.completed}
+                          className="cursor-pointer rounded-md border border-[var(--border)] px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Log
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <p className="mb-4 rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm text-[var(--muted)]">
+              Chua co plan cho hom nay. Ban van co the log buoi tap thu cong.
+            </p>
+          )}
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="md:col-span-2">
+              <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
+                Exercise
+              </span>
+              <select
+                value={selectedExercise}
+                onChange={(event) => setSelectedExercise(event.target.value)}
+                className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+              >
+                {library.map((exercise) => (
+                  <option key={exercise.id} value={exercise.name}>
+                    {exercise.name} ({exercise.muscleGroup})
+                  </option>
+                ))}
+                {!library.some(
+                  (exercise) => exercise.name === selectedExercise,
+                ) ? (
+                  <option value={selectedExercise}>{selectedExercise}</option>
+                ) : null}
+              </select>
+            </label>
+
+            <label>
+              <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
+                Sets
+              </span>
+              <input
+                type="number"
+                min={1}
+                max={10}
+                value={sets}
+                onChange={(event) => setSets(Number(event.target.value))}
+                className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+              />
+            </label>
+
+            <label>
+              <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
+                Reps
+              </span>
+              <input
+                type="number"
+                min={1}
+                max={30}
+                value={reps}
+                onChange={(event) => setReps(Number(event.target.value))}
+                className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+              />
+            </label>
+
+            <label>
+              <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
+                Weight (kg)
+              </span>
+              <input
+                type="number"
+                min={0}
+                max={500}
+                value={weightKg}
+                onChange={(event) => setWeightKg(Number(event.target.value))}
+                className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+              />
+            </label>
+
+            <label>
+              <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
+                RPE (optional)
+              </span>
+              <input
+                type="number"
+                min={1}
+                max={10}
+                step={0.5}
+                value={rpe}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  setRpe(next ? Number(next) : "");
+                }}
+                className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+              />
+            </label>
+
+            <label>
+              <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
+                Rest (sec)
+              </span>
+              <input
+                type="number"
+                min={45}
+                max={300}
+                value={restSeconds}
+                onChange={(event) => setRestSeconds(Number(event.target.value))}
+                className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+              />
+            </label>
+
+            <label className="flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm">
+              <input
+                type="checkbox"
+                checked={isCompleted}
+                onChange={(event) => setIsCompleted(event.target.checked)}
+              />
+              Set block completed with good form
+            </label>
+          </div>
+
+          {suggestion ? (
+            <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] p-3 text-sm">
+              <div className="flex items-center gap-2 text-[var(--accent)]">
+                <Zap size={16} />
+                Smart suggestion
+              </div>
+              <p className="mt-2 text-[var(--muted)]">{suggestion.rationale}</p>
+              <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-[var(--muted)]">
+                <p>Type: {suggestion.exerciseType}</p>
+                <p>Rest: {suggestion.suggestedRestSeconds}s</p>
+                <p>
+                  Suggested next load: {suggestion.suggestedWeightKg ?? "-"}
+                  {suggestion.suggestedWeightKg !== null ? " kg" : ""}
+                </p>
+                <p>Last 1RM: {suggestion.lastEstimated1Rm ?? "-"}</p>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={logEntry}
+              className="min-h-11 rounded-xl bg-[var(--accent)] px-5 py-2 text-sm font-semibold text-white"
+            >
+              Log Set (L)
+            </button>
+            <button
+              type="button"
+              onClick={() => void saveWorkout()}
+              disabled={isSaving}
+              className="min-h-11 rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-5 py-2 text-sm font-semibold"
+            >
+              <Save size={16} className="mr-1 inline-block" /> Save Session (S)
+            </button>
+            <button
+              type="button"
+              onClick={() => void syncQueuedWorkouts()}
+              className="min-h-11 rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-semibold"
+            >
+              <WifiOff size={16} className="mr-1 inline-block" /> Sync Offline (
+              {queue.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => void exportCsv()}
+              className="min-h-11 rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-semibold"
+            >
+              <ArrowDownToLine size={16} className="mr-1 inline-block" /> Export
+              CSV
+            </button>
+          </div>
 
           <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] p-4">
             <div className="mb-3 flex items-center justify-between">
               <p className="text-sm font-semibold">Current Session Entries</p>
               <p className="text-xs text-[var(--muted)]">
-                Total volume: {totalVolume.toFixed(0)} kg
+                Total volume: {totalVolume.toFixed(0)} kg · Max est. 1RM:{" "}
+                {maxEstimatedOneRm.toFixed(1)} kg
               </p>
             </div>
             <div className="space-y-2">
@@ -109,15 +788,21 @@ export function WorkoutSessionPage() {
                   No exercises logged yet.
                 </p>
               ) : (
-                entries.map((entry, index) => (
+                entries.map((entry) => (
                   <div
-                    key={`${entry.exerciseName}-${index}`}
+                    key={entry.id}
                     className="rounded-lg border border-[var(--border)] p-3 text-sm"
                   >
                     <p className="font-semibold">{entry.exerciseName}</p>
                     <p className="text-[var(--muted)]">
-                      {entry.sets} sets x {entry.reps} reps
-                      {entry.weightKg ? ` @ ${entry.weightKg}kg` : ""}
+                      {entry.sets} x {entry.reps}
+                      {entry.weightKg ? ` @ ${entry.weightKg}kg` : ""} · RPE{" "}
+                      {entry.rpe ?? "-"} · Rest {entry.restSeconds}s
+                    </p>
+                    <p className="text-xs text-[var(--muted)]">
+                      Volume {calculateVolume(entry).toFixed(0)} kg · 1RM{" "}
+                      {estimateOneRepMax(entry.weightKg, entry.reps).toFixed(1)}{" "}
+                      kg
                     </p>
                   </div>
                 ))
@@ -138,14 +823,6 @@ export function WorkoutSessionPage() {
             />
           </label>
 
-          <button
-            type="button"
-            onClick={saveWorkout}
-            className="mt-4 inline-flex items-center gap-2 rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white"
-          >
-            <Save size={16} /> Save Workout
-          </button>
-
           {status ? (
             <p className="mt-3 text-sm text-[var(--muted)]">{status}</p>
           ) : null}
@@ -155,36 +832,81 @@ export function WorkoutSessionPage() {
       <div className="space-y-4">
         <Card
           title="Rest Timer"
-          subtitle="Countdown between sets with optional real-time sync"
+          subtitle="Auto-starts after each logged set block"
         >
-          <RestTimer defaultSeconds={90} />
+          <RestTimer
+            defaultSeconds={90}
+            autoStartSeconds={timerStartSeconds}
+            autoStartKey={timerStartKey}
+          />
         </Card>
 
         <Card
-          title="Live PR Preview"
-          subtitle="Estimated personal records from this session"
+          title="Workout History Compare"
+          subtitle="Compare today vs previous session"
         >
           <div className="space-y-2">
-            {livePrs.length === 0 ? (
+            {history.length === 0 ? (
               <p className="text-sm text-[var(--muted)]">
-                PR preview appears as you log entries.
+                No session history yet.
               </p>
             ) : (
-              livePrs.map((pr) => (
-                <div
-                  key={pr.exerciseName}
-                  className="rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] p-3"
-                >
-                  <p className="font-semibold">{pr.exerciseName}</p>
+              <>
+                <label className="block">
+                  <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
+                    Session
+                  </span>
+                  <select
+                    value={selectedHistoryId ?? ""}
+                    onChange={(event) =>
+                      void loadComparison(event.target.value)
+                    }
+                    className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+                  >
+                    {history.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {new Date(item.sessionDate).toLocaleDateString()} ·{" "}
+                        {item.totalVolume.toFixed(0)} kg
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                {comparison?.comparisons?.slice(0, 6).map((row) => (
+                  <article
+                    key={row.exerciseName}
+                    className="rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] p-3 text-sm"
+                  >
+                    <p className="font-semibold">{row.exerciseName}</p>
+                    <p className="text-[var(--muted)]">
+                      Top weight: {row.currentTopWeightKg}kg (
+                      {row.deltaTopWeightKg >= 0 ? "+" : ""}
+                      {row.deltaTopWeightKg}kg)
+                    </p>
+                    <p className="text-[var(--muted)]">
+                      Volume: {row.currentVolume.toFixed(0)} (
+                      {row.deltaVolume >= 0 ? "+" : ""}
+                      {row.deltaVolume.toFixed(0)})
+                    </p>
+                  </article>
+                ))}
+                {!comparison ? (
                   <p className="text-sm text-[var(--muted)]">
-                    Best weight: {pr.bestWeightKg} kg
+                    Select a session to load comparison.
                   </p>
-                  <p className="text-sm text-[var(--muted)]">
-                    Best volume: {pr.bestVolume.toFixed(0)} kg
-                  </p>
-                </div>
-              ))
+                ) : null}
+              </>
             )}
+          </div>
+        </Card>
+
+        <Card title="Logging Shortcuts" subtitle="Speed mode">
+          <div className="space-y-2 text-sm text-[var(--muted)]">
+            <p>Press L to log current set block.</p>
+            <p>Press S to save current session.</p>
+            <p className="inline-flex items-center gap-1">
+              <Clock3 size={14} /> Timer auto-starts after each logged set.
+            </p>
           </div>
         </Card>
       </div>

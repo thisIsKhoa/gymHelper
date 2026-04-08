@@ -19,6 +19,22 @@ enum UserGoal {
   STRENGTH
 }
 
+enum ExerciseType {
+  COMPOUND
+  ISOLATION
+}
+
+enum MuscleGroup {
+  CHEST
+  BACK
+  LEGS
+  SHOULDERS
+  ARMS
+  CORE
+  GLUTES
+  FULL_BODY
+}
+
 model User {
   id             String              @id @default(cuid())
   email          String              @unique
@@ -32,6 +48,8 @@ model User {
   personalRecords PersonalRecord[]
   bodyMetrics     BodyMetric[]
   trainingPlans   TrainingPlan[]
+  weeklyStats     WeeklyWorkoutStat[]
+  customExercises CustomExercise[]
 }
 
 model WorkoutSession {
@@ -57,9 +75,12 @@ model WorkoutEntry {
   sets        Int
   reps        Int
   weightKg    Float?
+  rpe         Float?
+  isCompleted Boolean        @default(true)
   durationSec Int?
   restSeconds Int?
   volume      Float          @default(0)
+  estimated1Rm Float         @default(0)
   createdAt   DateTime       @default(now())
   session     WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
@@ -117,4 +138,34 @@ model TrainingPlanDay {
   plan      TrainingPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
 
   @@unique([planId, dayOfWeek])
+}
+
+model WeeklyWorkoutStat {
+  id              String   @id @default(cuid())
+  userId          String
+  isoWeek         String
+  totalVolume     Float    @default(0)
+  sessionsCount   Int      @default(0)
+  strongestLiftKg Float    @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, isoWeek])
+  @@index([userId, isoWeek])
+}
+
+model CustomExercise {
+  id               String       @id @default(cuid())
+  userId           String
+  name             String
+  muscleGroup      MuscleGroup
+  exerciseType     ExerciseType
+  defaultRestSeconds Int       @default(90)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+  @@index([userId, muscleGroup])
 }

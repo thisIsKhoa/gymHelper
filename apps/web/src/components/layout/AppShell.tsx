@@ -1,6 +1,7 @@
 import clsx from "clsx";
 import {
   BarChart3,
+  BookOpen,
   HeartPulse,
   CalendarClock,
   Dumbbell,
@@ -21,6 +22,7 @@ const navItems = [
   { to: "/plan", label: "Plan", icon: CalendarClock },
   { to: "/progress", label: "Progress", icon: BarChart3 },
   { to: "/metrics", label: "Metrics", icon: HeartPulse },
+  { to: "/library", label: "Library", icon: BookOpen },
 ];
 
 function titleFromPath(pathname: string): string {

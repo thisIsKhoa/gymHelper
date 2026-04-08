@@ -1,36 +1,47 @@
 # 1) System Architecture
 
-## Scope
-Personal workout tracker focused on individual performance tracking only.
-No social sharing, community feeds, or recommendation marketplace features.
+## Product Goal
 
-## Stack
-- Frontend: React + TypeScript + TailwindCSS + Framer Motion + Recharts
+Personal Workout Tracker is designed for individual athletes to log sessions quickly, monitor strength/body trends, and follow long-term progressive overload.
+
+## Core Architecture
+
+- Frontend: React + TypeScript + TailwindCSS + Framer Motion + Recharts + Zustand
 - Backend: Node.js + Express + Prisma
 - Database: PostgreSQL
+- Auth: JWT
+- Realtime utility: Socket.IO for optional shared timer ticks
 
-## Runtime Design
-- Mobile-first SPA calls REST API under `/api/v1`.
-- JWT auth protects user-specific resources.
-- Prisma models are chart-friendly: session date, entry loads, PR snapshots, weekly progression, and body metric points.
-- Optional Socket.IO channel supports real-time rest timer ticks.
+## High-Level Flow
 
-## Backend Module Layout
-- `auth`: register/login/profile
-- `workout`: session logging, history, PR updates
-- `progress`: exercise progression by week + PR overview
-- `body-metrics`: body composition tracking
-- `plan`: create/edit/duplicate custom schedules
-- `dashboard`: overview aggregates for home screen
+1. User logs sets from the mobile-first workout screen.
+2. API persists session and entries in one transaction.
+3. Service computes volume + estimated 1RM and updates PR tables.
+4. Weekly pre-aggregated stats are updated for fast dashboard rendering.
+5. Progress and dashboard APIs return chart-ready data (minimal frontend transform).
 
-## Frontend App Layout
-- `dashboard`: quick stats + bench progression focus
-- `session`: live exercise logger + set rest timer
-- `progress`: line/bar charts for strength and workload
-- `metrics`: body data logging + trend charts
-- `plan`: reusable schedule builder (Push/Pull/Legs etc.)
+## Backend Modules
 
-## Scalability Notes
-- Feature-based module separation keeps APIs maintainable.
-- Chart data is pre-shaped at service level for low frontend transform cost.
-- All user data queries are indexed by `userId` + time dimensions.
+- auth: register, login, profile
+- workout: session CRUD-like flows, compare sessions, smart suggestions, analytics, CSV export
+- progress: per-exercise weekly progression (weight, volume, estimated 1RM)
+- body-metrics: weight/body-fat/muscle tracking
+- plan: create/edit/clone plans with day-level exercises
+- dashboard: weekly overview, streak, strongest lift, PR highlights
+- exercise-library: predefined + custom exercises with muscle-group and type metadata
+
+## Frontend Modules
+
+- dashboard page: this-week KPIs, weekly volume charts, PR snapshots
+- session page: quick logging, RPE, auto rest timer, overload suggestion, offline queue sync, history comparison
+- progress page: selected exercise progression with max load + estimated 1RM charts
+- body metrics page: daily/weekly composition logs and trends
+- plan page: split management with drag-drop exercise ordering
+- exercise library page: custom exercise management
+
+## Performance/Scalability Notes
+
+- Weekly pre-aggregation (`WeeklyWorkoutStat`) reduces chart query cost.
+- Time-series queries are indexed by user + date/week dimensions.
+- Response payloads are chart-friendly to avoid expensive client reshaping.
+- Offline queue enables uninterrupted logging when network is unstable.

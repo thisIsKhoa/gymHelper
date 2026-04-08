@@ -1,10 +1,16 @@
 import type { NextFunction, Request, Response } from 'express';
 
 import { HttpError } from '../../utils/http-error.js';
-import { createPlanSchema, duplicatePlanSchema, updatePlanSchema } from './plan.schemas.js';
+import {
+  createPlanSchema,
+  duplicatePlanSchema,
+  sessionPlanTemplateQuerySchema,
+  updatePlanSchema,
+} from './plan.schemas.js';
 import {
   createTrainingPlan,
   duplicateTrainingPlan,
+  getSessionPlanTemplate,
   listTrainingPlans,
   updateTrainingPlan,
 } from './plan.service.js';
@@ -55,6 +61,16 @@ export async function duplicatePlan(req: Request, res: Response, next: NextFunct
     const input = duplicatePlanSchema.parse(req.body);
     const duplicated = await duplicateTrainingPlan(req.user!.id, planId, input.name);
     res.status(201).json(duplicated);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function sessionTemplate(req: Request, res: Response, next: NextFunction) {
+  try {
+    const query = sessionPlanTemplateQuerySchema.parse(req.query);
+    const template = await getSessionPlanTemplate(req.user!.id, query.date, query.planId);
+    res.status(200).json(template);
   } catch (error) {
     next(error);
   }

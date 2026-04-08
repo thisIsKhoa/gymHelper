@@ -6,6 +6,8 @@ export interface ExerciseInput {
   sets: number;
   reps: number;
   weightKg?: number;
+  rpe?: number;
+  isCompleted?: boolean;
   durationSec?: number;
   restSeconds?: number;
 }
@@ -30,6 +32,7 @@ export interface WeeklyExercisePoint {
   avgWeightKg: number;
   maxWeightKg: number;
   totalVolume: number;
+  maxEstimated1Rm: number;
 }
 
 export interface PersonalRecordSummary {

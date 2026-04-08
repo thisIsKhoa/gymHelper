@@ -5,6 +5,9 @@ import { getTimerSocket } from "../../lib/timer-socket.ts";
 
 interface RestTimerProps {
   defaultSeconds?: number;
+  autoStartSeconds?: number;
+  autoStartKey?: number;
+  onComplete?: () => void;
 }
 
 function formatSeconds(seconds: number) {
@@ -13,11 +16,38 @@ function formatSeconds(seconds: number) {
   return `${mm}:${ss}`;
 }
 
-export function RestTimer({ defaultSeconds = 90 }: RestTimerProps) {
+function playAlertTone() {
+  if (typeof window === "undefined" || !("AudioContext" in window)) {
+    return;
+  }
+
+  const context = new window.AudioContext();
+  const oscillator = context.createOscillator();
+  const gainNode = context.createGain();
+
+  oscillator.type = "sine";
+  oscillator.frequency.setValueAtTime(880, context.currentTime);
+  gainNode.gain.setValueAtTime(0.001, context.currentTime);
+  gainNode.gain.exponentialRampToValueAtTime(0.25, context.currentTime + 0.01);
+  gainNode.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.28);
+
+  oscillator.connect(gainNode);
+  gainNode.connect(context.destination);
+  oscillator.start();
+  oscillator.stop(context.currentTime + 0.3);
+}
+
+export function RestTimer({
+  defaultSeconds = 90,
+  autoStartSeconds,
+  autoStartKey,
+  onComplete,
+}: RestTimerProps) {
   const [duration, setDuration] = useState(defaultSeconds);
   const [remaining, setRemaining] = useState(defaultSeconds);
   const [isRunning, setIsRunning] = useState(false);
   const [useSocketSync, setUseSocketSync] = useState(false);
+  const [alertsEnabled, setAlertsEnabled] = useState(true);
 
   const intervalRef = useRef<number | null>(null);
   const socketRef = useRef(getTimerSocket());
@@ -28,6 +58,17 @@ export function RestTimer({ defaultSeconds = 90 }: RestTimerProps) {
     }
     return Math.max(0, Math.min(100, (remaining / duration) * 100));
   }, [duration, remaining]);
+
+  const notifyDone = () => {
+    if (alertsEnabled) {
+      playAlertTone();
+      if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+        navigator.vibrate([120, 80, 120]);
+      }
+    }
+
+    onComplete?.();
+  };
 
   useEffect(() => {
     if (!useSocketSync) {
@@ -44,6 +85,7 @@ export function RestTimer({ defaultSeconds = 90 }: RestTimerProps) {
     const onDone = () => {
       setIsRunning(false);
       setRemaining(0);
+      notifyDone();
     };
 
     socket.connect();
@@ -56,7 +98,7 @@ export function RestTimer({ defaultSeconds = 90 }: RestTimerProps) {
       socket.emit("timer:stop");
       socket.disconnect();
     };
-  }, [useSocketSync]);
+  }, [useSocketSync, alertsEnabled, onComplete]);
 
   useEffect(() => {
     return () => {
@@ -80,6 +122,7 @@ export function RestTimer({ defaultSeconds = 90 }: RestTimerProps) {
             intervalRef.current = null;
           }
           setIsRunning(false);
+          notifyDone();
           return 0;
         }
         return current - 1;
@@ -115,20 +158,49 @@ export function RestTimer({ defaultSeconds = 90 }: RestTimerProps) {
     setRemaining(duration);
   };
 
+  useEffect(() => {
+    if (!autoStartKey) {
+      return;
+    }
+
+    const seconds = autoStartSeconds ?? duration;
+    setDuration(seconds);
+    setRemaining(seconds);
+    setIsRunning(false);
+
+    if (useSocketSync && socketRef.current.connected) {
+      setIsRunning(true);
+      socketRef.current.emit("timer:start", { seconds });
+      return;
+    }
+
+    startLocalTimer();
+  }, [autoStartKey]);
+
   return (
     <div className="space-y-4 rounded-2xl border border-[var(--border)] bg-[var(--surface-solid)] p-4">
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
           Rest Countdown
         </p>
-        <label className="flex items-center gap-2 text-xs text-[var(--muted)]">
-          <input
-            type="checkbox"
-            checked={useSocketSync}
-            onChange={(event) => setUseSocketSync(event.target.checked)}
-          />
-          Socket sync
-        </label>
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-2 text-xs text-[var(--muted)]">
+            <input
+              type="checkbox"
+              checked={alertsEnabled}
+              onChange={(event) => setAlertsEnabled(event.target.checked)}
+            />
+            Alert
+          </label>
+          <label className="flex items-center gap-2 text-xs text-[var(--muted)]">
+            <input
+              type="checkbox"
+              checked={useSocketSync}
+              onChange={(event) => setUseSocketSync(event.target.checked)}
+            />
+            Socket sync
+          </label>
+        </div>
       </div>
 
       <div className="rounded-xl bg-[var(--surface)] p-3">

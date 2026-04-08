@@ -8,6 +8,8 @@ erDiagram
     User ||--o{ BodyMetric : logs
     User ||--o{ TrainingPlan : owns
     TrainingPlan ||--o{ TrainingPlanDay : schedules
+  User ||--o{ WeeklyWorkoutStat : aggregates
+  User ||--o{ CustomExercise : customizes
 
     User {
       string id PK
@@ -37,8 +39,11 @@ erDiagram
       int sets
       int reps
       float weightKg
+      float rpe
+      bool isCompleted
       int restSeconds
       float volume
+      float estimated1Rm
     }
 
     PersonalRecord {
@@ -75,6 +80,30 @@ erDiagram
       string focus
       json exercises
     }
+
+    WeeklyWorkoutStat {
+      string id PK
+      string userId FK
+      string isoWeek
+      float totalVolume
+      int sessionsCount
+      float strongestLiftKg
+    }
+
+    CustomExercise {
+      string id PK
+      string userId FK
+      string name
+      enum muscleGroup
+      enum exerciseType
+      int defaultRestSeconds
+    }
 ```
 
 Schema source of truth: `apps/api/prisma/schema.prisma`.
+
+## Notes
+
+- PR detection uses `PersonalRecord` (`bestWeightKg`, `bestVolume`).
+- Estimated 1RM uses Epley formula per workout entry.
+- `WeeklyWorkoutStat` is pre-aggregated for fast dashboard/progress charts.

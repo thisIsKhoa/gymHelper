@@ -32,6 +32,11 @@ export const duplicatePlanSchema = z.object({
   name: z.string().min(3).max(120).optional(),
 });
 
+export const sessionPlanTemplateQuerySchema = z.object({
+  date: z.coerce.date().optional(),
+  planId: z.string().min(1).optional(),
+});
+
 export type CreatePlanInput = z.infer<typeof createPlanSchema>;
 export type UpdatePlanInput = z.infer<typeof updatePlanSchema>;
 export type DuplicatePlanInput = z.infer<typeof duplicatePlanSchema>;

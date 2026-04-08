@@ -5,6 +5,7 @@ import { AppShell } from "../components/layout/AppShell.tsx";
 import { AuthPage } from "../pages/AuthPage.tsx";
 import { BodyMetricsPage } from "../pages/BodyMetricsPage.tsx";
 import { DashboardPage } from "../pages/DashboardPage.tsx";
+import { ExerciseLibraryPage } from "../pages/ExerciseLibraryPage.tsx";
 import { ProgressPage } from "../pages/ProgressPage.tsx";
 import { TrainingPlanPage } from "../pages/TrainingPlanPage.tsx";
 import { WorkoutSessionPage } from "../pages/WorkoutSessionPage.tsx";
@@ -28,6 +29,7 @@ export const router = createBrowserRouter([
       { path: "/plan", element: <TrainingPlanPage /> },
       { path: "/progress", element: <ProgressPage /> },
       { path: "/metrics", element: <BodyMetricsPage /> },
+      { path: "/library", element: <ExerciseLibraryPage /> },
     ],
   },
 ]);

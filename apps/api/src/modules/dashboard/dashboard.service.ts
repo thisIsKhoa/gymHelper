@@ -13,8 +13,34 @@ function weekKey(date: Date) {
   return `${copy.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
 }
 
+function dateOnlyKey(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function calculateStreakDays(sessionDatesDesc: Date[]): number {
+  const unique = Array.from(new Set(sessionDatesDesc.map((date) => dateOnlyKey(date))));
+  if (unique.length === 0) {
+    return 0;
+  }
+
+  let streak = 1;
+  for (let index = 1; index < unique.length; index += 1) {
+    const prev = new Date(unique[index - 1] as string);
+    const current = new Date(unique[index] as string);
+    const diffDays = Math.round((prev.getTime() - current.getTime()) / 86400000);
+
+    if (diffDays === 1) {
+      streak += 1;
+    } else {
+      break;
+    }
+  }
+
+  return streak;
+}
+
 export async function getDashboardOverview(userId: string) {
-  const [sessions, prs, entries, latestBodyMetric] = await Promise.all([
+  const [sessions, prs, entries, latestBodyMetric, weeklyStatsDesc] = await Promise.all([
     prisma.workoutSession.findMany({
       where: { userId },
       orderBy: { sessionDate: 'asc' },
@@ -45,7 +71,13 @@ export async function getDashboardOverview(userId: string) {
         loggedAt: 'desc',
       },
     }),
+    prisma.weeklyWorkoutStat.findMany({
+      where: { userId },
+      orderBy: { isoWeek: 'desc' },
+      take: 12,
+    }),
   ]);
+  const weeklyStats = [...weeklyStatsDesc].reverse();
 
   const volumeMap = new Map<string, number>();
   for (const session of sessions) {
@@ -90,14 +122,35 @@ export async function getDashboardOverview(userId: string) {
     .sort((a, b) => b.deltaKg - a.deltaKg)
     .slice(0, 10);
 
+  const currentWeek = weekKey(new Date());
+  const currentWeekStat = weeklyStats.find((item) => item.isoWeek === currentWeek);
+  const streakDays = calculateStreakDays(
+    [...sessions]
+      .sort((a, b) => b.sessionDate.getTime() - a.sessionDate.getTime())
+      .map((session) => session.sessionDate),
+  );
+
   return {
     volumeTrend: Array.from(volumeMap.entries()).map(([date, volume]) => ({ date, volume })),
     workoutFrequency: Array.from(frequencyMap.entries()).map(([week, sessionsCount]) => ({ week, sessionsCount })),
+    weeklySummary: weeklyStats.map((week) => ({
+      week: week.isoWeek,
+      totalVolume: Number(week.totalVolume.toFixed(2)),
+      sessionsCount: week.sessionsCount,
+      strongestLiftKg: Number(week.strongestLiftKg.toFixed(2)),
+    })),
     benchProgressByWeek: Array.from(benchByWeek.entries())
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([week, maxWeightKg]) => ({ week, maxWeightKg })),
     strengthIncrease,
     prHighlights: prs,
     latestBodyMetric,
+    thisWeek: {
+      week: currentWeek,
+      totalVolume: Number((currentWeekStat?.totalVolume ?? 0).toFixed(2)),
+      sessionsCount: currentWeekStat?.sessionsCount ?? 0,
+      strongestLiftKg: Number((currentWeekStat?.strongestLiftKg ?? 0).toFixed(2)),
+      streakDays,
+    },
   };
 }

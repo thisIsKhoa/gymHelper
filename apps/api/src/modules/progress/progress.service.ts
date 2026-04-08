@@ -40,17 +40,30 @@ export async function getExerciseProgressByWeek(userId: string, exerciseName: st
     },
   });
 
-  const map = new Map<string, { totalWeight: number; weightedSets: number; maxWeightKg: number; totalVolume: number }>();
+  const map = new Map<string, {
+    totalWeight: number;
+    weightedSets: number;
+    maxWeightKg: number;
+    totalVolume: number;
+    maxEstimated1Rm: number;
+  }>();
 
   for (const entry of entries) {
     const key = weekKey(entry.session.sessionDate);
-    const current = map.get(key) ?? { totalWeight: 0, weightedSets: 0, maxWeightKg: 0, totalVolume: 0 };
+    const current = map.get(key) ?? {
+      totalWeight: 0,
+      weightedSets: 0,
+      maxWeightKg: 0,
+      totalVolume: 0,
+      maxEstimated1Rm: 0,
+    };
     const weight = entry.weightKg ?? 0;
 
     current.totalWeight += weight;
     current.weightedSets += entry.sets;
     current.maxWeightKg = Math.max(current.maxWeightKg, weight);
     current.totalVolume += entry.volume;
+    current.maxEstimated1Rm = Math.max(current.maxEstimated1Rm, entry.estimated1Rm);
 
     map.set(key, current);
   }
@@ -60,6 +73,7 @@ export async function getExerciseProgressByWeek(userId: string, exerciseName: st
     avgWeightKg: value.weightedSets > 0 ? Number((value.totalWeight / value.weightedSets).toFixed(2)) : 0,
     maxWeightKg: Number(value.maxWeightKg.toFixed(2)),
     totalVolume: Number(value.totalVolume.toFixed(2)),
+    maxEstimated1Rm: Number(value.maxEstimated1Rm.toFixed(2)),
   }));
 
   return {
