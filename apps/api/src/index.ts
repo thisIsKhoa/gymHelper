@@ -4,6 +4,8 @@ import { Server } from 'socket.io';
 
 import { createApp } from './app.js';
 import { env } from './config/env.js';
+import { prisma } from './db/prisma.js';
+import { disconnectRedis } from './utils/redis.js';
 
 const app = createApp();
 const server = createServer(app);
@@ -58,4 +60,33 @@ io.on('connection', (socket) => {
 server.listen(env.PORT, () => {
   // eslint-disable-next-line no-console
   console.log(`API listening on http://localhost:${env.PORT}`);
+});
+
+let isShuttingDown = false;
+
+async function gracefulShutdown(signal: NodeJS.Signals): Promise<void> {
+  if (isShuttingDown) {
+    return;
+  }
+
+  isShuttingDown = true;
+  // eslint-disable-next-line no-console
+  console.log(`Received ${signal}. Shutting down API...`);
+
+  await new Promise<void>((resolve) => {
+    server.close(() => {
+      resolve();
+    });
+  });
+
+  await Promise.allSettled([prisma.$disconnect(), disconnectRedis()]);
+  process.exit(0);
+}
+
+process.on('SIGINT', () => {
+  void gracefulShutdown('SIGINT');
+});
+
+process.on('SIGTERM', () => {
+  void gracefulShutdown('SIGTERM');
 });

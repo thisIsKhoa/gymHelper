@@ -46,6 +46,16 @@ function toIsoWeek(date: Date): string {
   return `${copy.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
 }
 
+function toSessionDateOnly(date: Date): Date {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+}
+
+function nextUtcDate(date: Date): Date {
+  const copy = new Date(date);
+  copy.setUTCDate(copy.getUTCDate() + 1);
+  return copy;
+}
+
 function normalizeExerciseName(name: string): string {
   return name.trim().toLowerCase();
 }
@@ -144,16 +154,62 @@ async function upsertPersonalRecord(
 }
 
 export async function createWorkoutSession(userId: string, input: CreateWorkoutInput) {
+  const sessionDate = toSessionDateOnly(input.sessionDate);
+  const sessionDateNext = nextUtcDate(sessionDate);
+  const endedAt = input.endedAt ?? new Date();
+  const normalizedNotes = input.notes?.trim() ? input.notes.trim() : undefined;
+
   const session = await prisma.$transaction(async (tx) => {
-    const session = await tx.workoutSession.create({
-      data: {
+    const existingSession = await tx.workoutSession.findFirst({
+      where: {
         userId,
-        sessionDate: input.sessionDate,
-        startedAt: input.startedAt,
-        endedAt: input.endedAt,
-        notes: input.notes,
+        sessionDate: {
+          gte: sessionDate,
+          lt: sessionDateNext,
+        },
+      },
+      select: {
+        id: true,
+        startedAt: true,
+        endedAt: true,
+        totalVolume: true,
+      },
+      orderBy: {
+        createdAt: 'desc',
       },
     });
+
+    const sessionRecord = existingSession
+      ? await tx.workoutSession.update({
+          where: { id: existingSession.id },
+          data: {
+            startedAt:
+              existingSession.startedAt.getTime() <= input.startedAt.getTime()
+                ? existingSession.startedAt
+                : input.startedAt,
+            endedAt,
+            ...(normalizedNotes ? { notes: normalizedNotes } : {}),
+          },
+          select: {
+            id: true,
+            totalVolume: true,
+          },
+        })
+      : await tx.workoutSession.create({
+          data: {
+            userId,
+            sessionDate,
+            startedAt: input.startedAt,
+            endedAt,
+            notes: normalizedNotes,
+          },
+          select: {
+            id: true,
+            totalVolume: true,
+          },
+        });
+
+    const isNewDailySession = !existingSession;
 
     let totalVolume = 0;
     let strongestLiftKg = 0;
@@ -166,7 +222,7 @@ export async function createWorkoutSession(userId: string, input: CreateWorkoutI
 
       await tx.workoutEntry.create({
         data: {
-          sessionId: session.id,
+          sessionId: sessionRecord.id,
           exerciseName: entry.exerciseName,
           sets: entry.sets,
           reps: entry.reps,
@@ -186,11 +242,11 @@ export async function createWorkoutSession(userId: string, input: CreateWorkoutI
         entry.exerciseName,
         entry.weightKg ?? 0,
         volume,
-        input.endedAt ?? new Date(),
+        endedAt,
       );
     }
 
-    const isoWeek = toIsoWeek(input.sessionDate);
+    const isoWeek = toIsoWeek(sessionDate);
     const existingWeekly = await tx.weeklyWorkoutStat.findUnique({
       where: {
         userId_isoWeek: {
@@ -205,7 +261,7 @@ export async function createWorkoutSession(userId: string, input: CreateWorkoutI
         where: { id: existingWeekly.id },
         data: {
           totalVolume: Number((existingWeekly.totalVolume + totalVolume).toFixed(2)),
-          sessionsCount: existingWeekly.sessionsCount + 1,
+          sessionsCount: isNewDailySession ? existingWeekly.sessionsCount + 1 : existingWeekly.sessionsCount,
           strongestLiftKg: Math.max(existingWeekly.strongestLiftKg, strongestLiftKg),
         },
       });
@@ -221,13 +277,21 @@ export async function createWorkoutSession(userId: string, input: CreateWorkoutI
       });
     }
 
+    const nextSessionTotalVolume = Number(((sessionRecord.totalVolume ?? 0) + totalVolume).toFixed(2));
+
     return tx.workoutSession.update({
-      where: { id: session.id },
+      where: { id: sessionRecord.id },
       data: {
-        totalVolume,
+        totalVolume: nextSessionTotalVolume,
+        endedAt,
+        ...(normalizedNotes ? { notes: normalizedNotes } : {}),
       },
       include: {
-        entries: true,
+        entries: {
+          orderBy: {
+            createdAt: 'asc',
+          },
+        },
       },
     });
   });

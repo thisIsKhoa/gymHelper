@@ -4,7 +4,6 @@ import {
   CheckCircle2,
   Clock3,
   ClipboardList,
-  Save,
   WifiOff,
   Zap,
 } from "lucide-react";
@@ -20,6 +19,7 @@ import {
 
 import { RestTimer } from "../components/workout/RestTimer.tsx";
 import { Card } from "../components/ui/Card.tsx";
+import { useSuccessToast } from "../components/ui/success-toast.tsx";
 import { apiRequest, getAuthToken } from "../lib/api.ts";
 import {
   enqueueWorkout,
@@ -49,10 +49,18 @@ interface SessionHistoryItem {
   id: string;
   sessionDate: string;
   totalVolume: number;
+  notes?: string | null;
   entries: Array<{
     exerciseName: string;
+    sets: number;
+    reps: number;
     volume: number;
     weightKg?: number | null;
+    rpe?: number | null;
+    isCompleted?: boolean;
+    durationSec?: number | null;
+    restSeconds?: number | null;
+    estimated1Rm?: number;
   }>;
 }
 
@@ -93,6 +101,30 @@ interface PlannedQueueItem extends SessionPlanExercise {
 }
 
 const ACTIVE_SESSION_PLAN_ID_KEY = "gymhelper-active-session-plan-id";
+
+function localDateKey(date: Date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function mapHistoryEntryToInput(
+  entry: SessionHistoryItem["entries"][number],
+): ExerciseEntryInput {
+  return {
+    id: crypto.randomUUID(),
+    exerciseName: entry.exerciseName,
+    sets: entry.sets,
+    reps: entry.reps,
+    weightKg: typeof entry.weightKg === "number" ? entry.weightKg : undefined,
+    rpe: typeof entry.rpe === "number" ? entry.rpe : undefined,
+    isCompleted: entry.isCompleted ?? true,
+    durationSec:
+      typeof entry.durationSec === "number" ? entry.durationSec : undefined,
+    restSeconds: typeof entry.restSeconds === "number" ? entry.restSeconds : 90,
+  };
+}
 
 function toWorkoutSessionInput(
   entries: ExerciseEntryInput[],
@@ -150,9 +182,8 @@ const PlannedQueueRow = memo(function PlannedQueueRow({
       <div className="min-w-0">
         <p className="break-words text-sm font-medium">{item.exerciseName}</p>
         <p className="text-xs text-[var(--muted)]">
-          {item.sets} x {item.reps}
           {typeof item.targetWeightKg === "number"
-            ? ` @ ${item.targetWeightKg}kg`
+            ? ` · target ${item.targetWeightKg}kg`
             : ""}
         </p>
       </div>
@@ -213,6 +244,7 @@ const SessionEntryRow = memo(function SessionEntryRow({
 });
 
 export function WorkoutSessionPage() {
+  const { showSuccessToast } = useSuccessToast();
   const [entries, setEntries] = useState<ExerciseEntryInput[]>([]);
   const [library, setLibrary] = useState<ExerciseLibraryItem[]>([]);
   const [selectedExercise, setSelectedExercise] = useState("Bench Press");
@@ -240,10 +272,8 @@ export function WorkoutSessionPage() {
   const [timerStartKey, setTimerStartKey] = useState(0);
   const [timerStartSeconds, setTimerStartSeconds] = useState(90);
   const [status, setStatus] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
   const startedAt = useRef(new Date());
   const logEntryRef = useRef<() => void>(() => undefined);
-  const saveWorkoutRef = useRef<() => Promise<void>>(async () => undefined);
   const suggestionRequestId = useRef(0);
   const logSetPanelRef = useRef<HTMLDivElement | null>(null);
   const timerPanelRef = useRef<HTMLDivElement | null>(null);
@@ -283,8 +313,7 @@ export function WorkoutSessionPage() {
       }
 
       setSelectedExercise(item.exerciseName);
-      setSets(item.sets);
-      setReps(item.reps);
+      setSets(1);
 
       if (typeof item.targetWeightKg === "number") {
         setWeightKg(item.targetWeightKg);
@@ -294,7 +323,9 @@ export function WorkoutSessionPage() {
         setRestSeconds(item.restSeconds);
       }
 
-      setStatus(`Loaded ${item.exerciseName} into the logger.`);
+      setStatus(
+        `Loaded ${item.exerciseName}. Enter reps and log set (starts at 1).`,
+      );
     },
     [],
   );
@@ -328,6 +359,34 @@ export function WorkoutSessionPage() {
     });
   }, []);
 
+  const persistLoggedEntry = useCallback(
+    async (entry: ExerciseEntryInput) => {
+      const payload = toWorkoutSessionInput([entry], notes, startedAt.current);
+
+      try {
+        await apiRequest("/workouts", "POST", {
+          ...payload,
+          sessionDate: localDateKey(),
+        });
+        setStatus(null);
+        showSuccessToast();
+        void loadHistory();
+      } catch (error) {
+        const queued = enqueueWorkout({
+          ...payload,
+          sessionDate: localDateKey(),
+        });
+        setQueue(queued);
+        const offlineMessage =
+          error instanceof Error
+            ? `Offline mode: set queued (${error.message})`
+            : "Offline mode: set queued for later sync.";
+        setStatus(offlineMessage);
+      }
+    },
+    [notes, showSuccessToast],
+  );
+
   const logPlannedExercise = useCallback(
     (item: PlannedQueueItem) => {
       const rest =
@@ -340,8 +399,8 @@ export function WorkoutSessionPage() {
       const next: ExerciseEntryInput = {
         id: crypto.randomUUID(),
         exerciseName: item.exerciseName.trim(),
-        sets: item.sets,
-        reps: item.reps,
+        sets,
+        reps,
         weightKg:
           typeof item.targetWeightKg === "number" && item.targetWeightKg > 0
             ? item.targetWeightKg
@@ -355,13 +414,16 @@ export function WorkoutSessionPage() {
       markPlannedExerciseCompleted(next.exerciseName);
       setTimerStartSeconds(rest);
       setTimerStartKey((key) => key + 1);
-      setStatus(`Logged planned set for ${item.exerciseName}.`);
       scrollToTimerPanel();
+      void persistLoggedEntry(next);
     },
     [
       applyPlannedExercise,
       markPlannedExerciseCompleted,
+      persistLoggedEntry,
+      reps,
       restSeconds,
+      sets,
       scrollToTimerPanel,
     ],
   );
@@ -385,6 +447,19 @@ export function WorkoutSessionPage() {
         "GET",
       );
       setHistory(result);
+
+      const todaySession = result.find(
+        (session) => session.sessionDate.slice(0, 10) === localDateKey(),
+      );
+
+      if (todaySession) {
+        setEntries(
+          [...todaySession.entries].map(mapHistoryEntryToInput).reverse(),
+        );
+      } else {
+        setEntries([]);
+      }
+
       if (result[0]) {
         setSelectedHistoryId(result[0].id);
         void loadComparison(result[0].id);
@@ -501,11 +576,6 @@ export function WorkoutSessionPage() {
         event.preventDefault();
         logEntryRef.current();
       }
-
-      if (event.key.toLowerCase() === "s") {
-        event.preventDefault();
-        void saveWorkoutRef.current();
-      }
     };
 
     window.addEventListener("keydown", onKeyDown);
@@ -560,52 +630,14 @@ export function WorkoutSessionPage() {
 
     setEntries((current) => [next, ...current]);
     markPlannedExerciseCompleted(next.exerciseName);
-    setStatus(
-      `Logged ${sets}x${reps} for ${next.exerciseName}. Rest timer auto-started.`,
-    );
     setTimerStartSeconds(restSeconds);
     setTimerStartKey((key) => key + 1);
     scrollToTimerPanel();
-  };
-
-  const saveWorkout = async () => {
-    if (entries.length === 0) {
-      setStatus("Add at least one exercise before saving.");
-      return;
-    }
-
-    const payload = toWorkoutSessionInput(entries, notes, startedAt.current);
-    setIsSaving(true);
-
-    try {
-      await apiRequest("/workouts", "POST", {
-        ...payload,
-        sessionDate: new Date().toISOString(),
-      });
-      setStatus("Workout saved and synced.");
-      setEntries([]);
-      setNotes("");
-      startedAt.current = new Date();
-      await loadHistory();
-    } catch (error) {
-      const queued = enqueueWorkout({
-        ...payload,
-        sessionDate: new Date().toISOString(),
-      });
-      setQueue(queued);
-      setStatus(
-        error instanceof Error
-          ? `Offline mode: workout queued (${error.message})`
-          : "Offline mode: workout queued for later sync.",
-      );
-    } finally {
-      setIsSaving(false);
-    }
+    void persistLoggedEntry(next);
   };
 
   useEffect(() => {
     logEntryRef.current = logEntry;
-    saveWorkoutRef.current = saveWorkout;
   });
 
   const syncQueuedWorkouts = async () => {
@@ -629,6 +661,9 @@ export function WorkoutSessionPage() {
     setQueue(failed);
     if (failed.length === 0) {
       setStatus("All offline workouts synced.");
+      showSuccessToast({
+        message: "Offline workouts synced successfully",
+      });
       await loadHistory();
     } else {
       setStatus(`${failed.length} workout(s) still queued.`);
@@ -673,6 +708,9 @@ export function WorkoutSessionPage() {
       anchor.click();
       window.URL.revokeObjectURL(url);
       setStatus("CSV export downloaded.");
+      showSuccessToast({
+        message: "CSV export completed successfully",
+      });
     } catch (error) {
       setStatus(
         error instanceof Error ? error.message : "Failed to export CSV.",
@@ -686,7 +724,7 @@ export function WorkoutSessionPage() {
         <div ref={logSetPanelRef} className="scroll-mt-24">
           <Card
             title="Start Workout"
-            subtitle="Fast one-hand logging with smart overload"
+            subtitle="Fast one-hand logging with smart overload and auto-save"
             className="perf-contain"
           >
             {sessionPlan ? (
@@ -872,22 +910,13 @@ export function WorkoutSessionPage() {
               </div>
             ) : null}
 
-            <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
               <button
                 type="button"
                 onClick={logEntry}
-                className="min-h-11 w-full rounded-xl bg-[var(--accent)] px-5 py-2 text-sm font-semibold text-white"
+                className="min-h-11 w-full rounded-xl bg-[var(--accent)] px-5 py-2 text-sm font-semibold text-white transition-colors"
               >
                 Log Set (L)
-              </button>
-              <button
-                type="button"
-                onClick={() => void saveWorkout()}
-                disabled={isSaving}
-                className="min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-5 py-2 text-sm font-semibold"
-              >
-                <Save size={16} className="mr-1 inline-block" /> Save Session
-                (S)
               </button>
               <button
                 type="button"
@@ -1028,8 +1057,10 @@ export function WorkoutSessionPage() {
 
         <Card title="Logging Shortcuts" subtitle="Speed mode">
           <div className="space-y-2 text-sm text-[var(--muted)]">
-            <p>Press L to log current set block.</p>
-            <p>Press S to save current session.</p>
+            <p>Press L to log current set block and auto-save.</p>
+            <p>
+              One day uses one session. New logs are appended automatically.
+            </p>
             <p className="inline-flex items-center gap-1">
               <Clock3 size={14} /> Timer auto-starts after each logged set.
             </p>

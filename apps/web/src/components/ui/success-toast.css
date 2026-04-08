@@ -1,0 +1,186 @@
+:root {
+    --toast-success: #22c55e;
+    --toast-success-bg: color-mix(in oklab, #fff 88%, #22c55e 12%);
+    --toast-success-border: color-mix(in oklab, #22c55e 26%, #fff 74%);
+    --toast-success-icon-bg: color-mix(in oklab, #dcfce7 68%, #fff 32%);
+    --toast-success-title: #0f172a;
+    --toast-success-message: #334155;
+    --toast-success-close: #475569;
+    --toast-success-progress-track: color-mix(in oklab, #22c55e 22%, transparent);
+    --toast-success-progress-fill: linear-gradient(90deg, #22c55e, #16a34a);
+}
+
+:root[data-theme='dark'] {
+    --toast-success-bg: color-mix(in oklab, #1f2937 90%, #22c55e 10%);
+    --toast-success-border: color-mix(in oklab, #86efac 24%, #1f2937 76%);
+    --toast-success-icon-bg: color-mix(in oklab, #22c55e 22%, #111827 78%);
+    --toast-success-title: #f8fafc;
+    --toast-success-message: #cbd5e1;
+    --toast-success-close: #cbd5e1;
+    --toast-success-progress-track: color-mix(in oklab, #22c55e 34%, transparent);
+    --toast-success-progress-fill: linear-gradient(90deg, #4ade80, #22c55e);
+}
+
+.success-toast-viewport {
+    position: fixed;
+    top: max(1rem, env(safe-area-inset-top) + 0.75rem);
+    right: 1rem;
+    z-index: 120;
+    width: min(25rem, 100vw - 2rem);
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+    pointer-events: none;
+}
+
+@media (max-width: 767px) {
+    .success-toast-viewport {
+        top: max(0.75rem, env(safe-area-inset-top) + 0.5rem);
+        right: auto;
+        left: 50%;
+        transform: translateX(-50%);
+        width: min(90vw, 25rem);
+    }
+}
+
+.success-toast {
+    position: relative;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 0.85rem;
+    border-radius: 14px;
+    border: 1px solid var(--toast-success-border);
+    background: var(--toast-success-bg);
+    box-shadow:
+        0 16px 38px rgb(15 23 42 / 13%),
+        0 5px 12px rgb(15 23 42 / 8%);
+    backdrop-filter: blur(14px) saturate(145%);
+    -webkit-backdrop-filter: blur(14px) saturate(145%);
+    padding: 0.82rem 0.88rem 0.92rem;
+    overflow: hidden;
+    isolation: isolate;
+    pointer-events: auto;
+    touch-action: pan-y;
+    font-family: 'Sora', sans-serif;
+    transition: background-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+    will-change: transform;
+}
+
+.success-toast::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto;
+    height: 44%;
+    background: linear-gradient(180deg, rgb(255 255 255 / 28%), transparent);
+    pointer-events: none;
+    z-index: -1;
+}
+
+.success-toast:hover,
+.success-toast:focus-within {
+    background: color-mix(in oklab, var(--toast-success-bg) 84%, #fff 16%);
+    box-shadow:
+        0 18px 44px rgb(15 23 42 / 15%),
+        0 6px 14px rgb(15 23 42 / 10%);
+    transform: translateY(-1px);
+}
+
+:root[data-theme='dark'] .success-toast:hover,
+:root[data-theme='dark'] .success-toast:focus-within {
+    background: color-mix(in oklab, var(--toast-success-bg) 90%, #f8fafc 10%);
+}
+
+.success-toast__icon {
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--toast-success-icon-bg);
+    color: var(--toast-success);
+    border: 1px solid color-mix(in oklab, var(--toast-success) 38%, transparent);
+    flex-shrink: 0;
+}
+
+.success-toast__icon svg {
+    transform-origin: center;
+    animation: toast-icon-pop 380ms cubic-bezier(0.22, 1.2, 0.35, 1);
+}
+
+@keyframes toast-icon-pop {
+    0% {
+        transform: scale(0.7);
+        opacity: 0;
+    }
+
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+.success-toast__content {
+    min-width: 0;
+}
+
+.success-toast__title {
+    font-size: 0.95rem;
+    line-height: 1.25;
+    font-weight: 700;
+    color: var(--toast-success-title);
+    margin: 0;
+}
+
+.success-toast__message {
+    margin: 0.2rem 0 0;
+    font-size: 0.84rem;
+    line-height: 1.45;
+    color: var(--toast-success-message);
+}
+
+.success-toast__close {
+    all: unset;
+    width: 1.9rem;
+    height: 1.9rem;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--toast-success-close);
+    cursor: pointer;
+    transition: background-color 140ms ease, color 140ms ease;
+}
+
+.success-toast__close:hover,
+.success-toast__close:focus-visible {
+    background: color-mix(in oklab, var(--toast-success) 14%, transparent);
+    color: var(--toast-success-title);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--toast-success) 16%, transparent);
+}
+
+.success-toast__progress-track {
+    position: absolute;
+    inset: auto 0 0;
+    height: 3px;
+    background: var(--toast-success-progress-track);
+}
+
+.success-toast__progress-fill {
+    width: 100%;
+    height: 100%;
+    transform-origin: left center;
+    background: var(--toast-success-progress-fill);
+    will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .success-toast {
+        transition: none;
+        transform: none !important;
+    }
+
+    .success-toast__icon svg {
+        animation: none;
+    }
+}

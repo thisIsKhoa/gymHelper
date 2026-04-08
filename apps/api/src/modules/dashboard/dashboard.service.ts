@@ -45,7 +45,7 @@ export async function getDashboardOverview(userId: string) {
     DASHBOARD_OVERVIEW_TTL_MS,
     async () => {
       const [volumeRows, streakSessions, prs, latestBodyMetric, weeklyStatsDesc, strengthRows, benchRows] =
-        await Promise.all([
+        await prisma.$transaction([
           prisma.$queryRaw<
             Array<{
               session_date: Date;
@@ -70,90 +70,90 @@ export async function getDashboardOverview(userId: string) {
             },
             take: 180,
           }),
-        prisma.personalRecord.findMany({
-          where: { userId },
-          orderBy: [{ bestWeightKg: 'desc' }, { bestVolume: 'desc' }],
-          take: 6,
-        }),
-        prisma.bodyMetric.findFirst({
-          where: { userId },
-          orderBy: {
-            loggedAt: 'desc',
-          },
-        }),
-        prisma.weeklyWorkoutStat.findMany({
-          where: { userId },
-          orderBy: { isoWeek: 'desc' },
-          take: 12,
-        }),
-        prisma.$queryRaw<
-          Array<{
-            exercise_name: string;
-            start_weight_kg: number | null;
-            current_weight_kg: number | null;
-          }>
-        >`
-          WITH weighted AS (
+          prisma.personalRecord.findMany({
+            where: { userId },
+            orderBy: [{ bestWeightKg: 'desc' }, { bestVolume: 'desc' }],
+            take: 6,
+          }),
+          prisma.bodyMetric.findFirst({
+            where: { userId },
+            orderBy: {
+              loggedAt: 'desc',
+            },
+          }),
+          prisma.weeklyWorkoutStat.findMany({
+            where: { userId },
+            orderBy: { isoWeek: 'desc' },
+            take: 12,
+          }),
+          prisma.$queryRaw<
+            Array<{
+              exercise_name: string;
+              start_weight_kg: number | null;
+              current_weight_kg: number | null;
+            }>
+          >`
+            WITH weighted AS (
+              SELECT
+                we."exerciseName" AS exercise_name,
+                we."weightKg"::double precision AS weight_kg,
+                ws."sessionDate" AS session_date,
+                we."createdAt" AS created_at
+              FROM "WorkoutEntry" AS we
+              INNER JOIN "WorkoutSession" AS ws ON ws."id" = we."sessionId"
+              WHERE ws."userId" = ${userId}
+                AND we."weightKg" IS NOT NULL
+            ),
+            first_lift AS (
+              SELECT DISTINCT ON (exercise_name)
+                exercise_name,
+                weight_kg AS start_weight_kg
+              FROM weighted
+              ORDER BY exercise_name, session_date ASC, created_at ASC
+            ),
+            latest_lift AS (
+              SELECT DISTINCT ON (exercise_name)
+                exercise_name,
+                weight_kg AS current_weight_kg
+              FROM weighted
+              ORDER BY exercise_name, session_date DESC, created_at DESC
+            ),
+            counts AS (
+              SELECT
+                exercise_name,
+                COUNT(*) AS entry_count
+              FROM weighted
+              GROUP BY exercise_name
+            )
             SELECT
-              we."exerciseName" AS exercise_name,
-              we."weightKg"::double precision AS weight_kg,
-              ws."sessionDate" AS session_date,
-              we."createdAt" AS created_at
+              c.exercise_name,
+              f.start_weight_kg,
+              l.current_weight_kg
+            FROM counts AS c
+            INNER JOIN first_lift AS f ON f.exercise_name = c.exercise_name
+            INNER JOIN latest_lift AS l ON l.exercise_name = c.exercise_name
+            WHERE c.entry_count >= 2
+            ORDER BY (l.current_weight_kg - f.start_weight_kg) DESC
+            LIMIT 10
+          `,
+          prisma.$queryRaw<
+            Array<{
+              week_start: Date;
+              max_weight_kg: number | null;
+            }>
+          >`
+            SELECT
+              date_trunc('week', ws."sessionDate") AS week_start,
+              MAX(we."weightKg") AS max_weight_kg
             FROM "WorkoutEntry" AS we
             INNER JOIN "WorkoutSession" AS ws ON ws."id" = we."sessionId"
             WHERE ws."userId" = ${userId}
               AND we."weightKg" IS NOT NULL
-          ),
-          first_lift AS (
-            SELECT DISTINCT ON (exercise_name)
-              exercise_name,
-              weight_kg AS start_weight_kg
-            FROM weighted
-            ORDER BY exercise_name, session_date ASC, created_at ASC
-          ),
-          latest_lift AS (
-            SELECT DISTINCT ON (exercise_name)
-              exercise_name,
-              weight_kg AS current_weight_kg
-            FROM weighted
-            ORDER BY exercise_name, session_date DESC, created_at DESC
-          ),
-          counts AS (
-            SELECT
-              exercise_name,
-              COUNT(*) AS entry_count
-            FROM weighted
-            GROUP BY exercise_name
-          )
-          SELECT
-            c.exercise_name,
-            f.start_weight_kg,
-            l.current_weight_kg
-          FROM counts AS c
-          INNER JOIN first_lift AS f ON f.exercise_name = c.exercise_name
-          INNER JOIN latest_lift AS l ON l.exercise_name = c.exercise_name
-          WHERE c.entry_count >= 2
-          ORDER BY (l.current_weight_kg - f.start_weight_kg) DESC
-          LIMIT 10
-        `,
-        prisma.$queryRaw<
-          Array<{
-            week_start: Date;
-            max_weight_kg: number | null;
-          }>
-        >`
-          SELECT
-            date_trunc('week', ws."sessionDate") AS week_start,
-            MAX(we."weightKg") AS max_weight_kg
-          FROM "WorkoutEntry" AS we
-          INNER JOIN "WorkoutSession" AS ws ON ws."id" = we."sessionId"
-          WHERE ws."userId" = ${userId}
-            AND we."weightKg" IS NOT NULL
-            AND we."exerciseName" IN ('Bench Press', 'bench press')
-          GROUP BY week_start
-          ORDER BY week_start ASC
-        `,
-      ]);
+              AND we."exerciseName" IN ('Bench Press', 'bench press')
+            GROUP BY week_start
+            ORDER BY week_start ASC
+          `,
+        ]);
       const weeklyStats = [...weeklyStatsDesc].reverse();
 
       const strengthIncrease = strengthRows.map((row) => {

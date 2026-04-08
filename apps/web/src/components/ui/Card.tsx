@@ -16,9 +16,14 @@ export function Card({
   children,
 }: CardProps) {
   return (
-    <section className={clsx("glass-card p-4 sm:p-5 md:p-6", className)}>
+    <section
+      className={clsx(
+        "glass-card relative overflow-hidden p-4 transition-transform duration-200 hover:-translate-y-0.5 sm:p-5 md:p-6",
+        className,
+      )}
+    >
       {(title || subtitle || action) && (
-        <header className="mb-3 flex flex-col gap-2 sm:mb-4 sm:flex-row sm:items-start sm:justify-between">
+        <header className="mb-3 flex flex-col gap-2.5 sm:mb-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             {title ? (
               <h3 className="text-base font-semibold text-[var(--text)] sm:text-lg">
@@ -26,12 +31,14 @@ export function Card({
               </h3>
             ) : null}
             {subtitle ? (
-              <p className="mt-1 break-words text-xs leading-relaxed text-[var(--muted)] sm:text-sm">
+              <p className="mt-1.5 break-words text-xs leading-relaxed text-[var(--muted)] sm:text-sm">
                 {subtitle}
               </p>
             ) : null}
           </div>
-          {action ? <div className="w-full sm:w-auto">{action}</div> : null}
+          {action ? (
+            <div className="w-full sm:w-auto sm:pl-3">{action}</div>
+          ) : null}
         </header>
       )}
       {children}

@@ -1,3 +1,5 @@
+import clsx from "clsx";
+import { Eye, EyeOff, LogIn, ShieldCheck, UserPlus } from "lucide-react";
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
@@ -19,6 +21,7 @@ export function AuthPage() {
   const location = useLocation();
 
   const [mode, setMode] = useState<AuthMode>("login");
+  const [showPassword, setShowPassword] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -27,6 +30,12 @@ export function AuthPage() {
 
   const redirectPath =
     (location.state as { from?: string } | null)?.from ?? "/dashboard";
+
+  const isLogin = mode === "login";
+  const canSubmit =
+    email.trim().length > 0 &&
+    password.trim().length >= 8 &&
+    (isLogin || name.trim().length > 0);
 
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -59,79 +68,126 @@ export function AuthPage() {
           Personal Workout Tracker
         </p>
         <h1 className="mt-2 text-2xl font-bold text-[var(--text)] sm:text-3xl">
-          {mode === "login" ? "Welcome back" : "Create account"}
+          {isLogin ? "Welcome back" : "Create account"}
         </h1>
         <p className="mt-2 text-sm text-[var(--muted)] sm:text-base">
-          {mode === "login"
+          {isLogin
             ? "Sign in to sync workouts, progress charts, and body metrics on cloud database."
             : "Create your account to store all training data on cloud database."}
         </p>
 
+        <div className="mt-4 flex flex-wrap gap-2">
+          <span className="ui-chip">
+            <ShieldCheck size={14} /> Secure token auth
+          </span>
+          <span className="ui-chip">Fast sync across devices</span>
+        </div>
+
+        <div className="mt-5 grid grid-cols-2 gap-1 rounded-xl border border-[var(--border)] bg-[color:var(--surface-solid)] p-1">
+          <button
+            type="button"
+            onClick={() => {
+              setMode("login");
+              setError(null);
+            }}
+            className={clsx(
+              "ui-btn min-h-10 w-full px-3 py-2 text-xs",
+              isLogin ? "ui-btn-primary" : "ui-btn-ghost",
+            )}
+            aria-pressed={isLogin}
+          >
+            <span className="inline-flex items-center gap-1.5">
+              <LogIn size={14} /> Login
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMode("register");
+              setError(null);
+            }}
+            className={clsx(
+              "ui-btn min-h-10 w-full px-3 py-2 text-xs",
+              !isLogin ? "ui-btn-primary" : "ui-btn-ghost",
+            )}
+            aria-pressed={!isLogin}
+          >
+            <span className="inline-flex items-center gap-1.5">
+              <UserPlus size={14} /> Register
+            </span>
+          </button>
+        </div>
+
         <form className="mt-6 space-y-3" onSubmit={submit}>
-          {mode === "register" ? (
+          {!isLogin ? (
             <label className="block">
-              <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
-                Name
-              </span>
+              <span className="ui-label">Name</span>
               <input
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 required
-                className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+                className="ui-input"
+                placeholder="Your display name"
               />
             </label>
           ) : null}
 
           <label className="block">
-            <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
-              Email
-            </span>
+            <span className="ui-label">Email</span>
             <input
               type="email"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               required
-              className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+              className="ui-input"
+              placeholder="you@example.com"
             />
           </label>
 
           <label className="block">
-            <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
-              Password
-            </span>
-            <input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              required
-              minLength={8}
-              className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
-            />
+            <span className="ui-label">Password</span>
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                required
+                minLength={8}
+                className="ui-input pr-11"
+                placeholder="At least 8 characters"
+              />
+              <button
+                type="button"
+                className="ui-btn ui-btn-ghost absolute right-1.5 top-1/2 min-h-8 -translate-y-1/2 px-2"
+                onClick={() => setShowPassword((current) => !current)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
           </label>
 
           <button
             type="submit"
-            disabled={isSubmitting}
-            className="min-h-11 w-full rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+            disabled={isSubmitting || !canSubmit}
+            className="ui-btn ui-btn-primary w-full"
           >
-            {isSubmitting
-              ? "Please wait..."
-              : mode === "login"
-                ? "Login"
-                : "Register"}
+            {isSubmitting ? "Please wait..." : isLogin ? "Login" : "Register"}
           </button>
         </form>
 
-        {error ? <p className="mt-3 text-sm text-red-400">{error}</p> : null}
+        {error ? (
+          <p className="ui-status ui-status-danger mt-3">{error}</p>
+        ) : null}
 
         <button
           type="button"
           onClick={() =>
             setMode((current) => (current === "login" ? "register" : "login"))
           }
-          className="mt-4 min-h-11 text-sm text-[var(--muted)] underline underline-offset-4"
+          className="ui-btn ui-btn-ghost mt-4 w-full text-sm"
         >
-          {mode === "login"
+          {isLogin
             ? "No account? Register now"
             : "Already have an account? Login"}
         </button>

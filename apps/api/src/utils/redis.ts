@@ -70,3 +70,17 @@ export async function setRedisValue(key: string, value: string): Promise<boolean
   await client.set(cacheKey(key), value);
   return true;
 }
+
+export async function disconnectRedis(): Promise<void> {
+  if (!redisClient?.isOpen) {
+    return;
+  }
+
+  try {
+    await redisClient.quit();
+  } catch {
+    await redisClient.disconnect();
+  } finally {
+    redisClient = null;
+  }
+}
