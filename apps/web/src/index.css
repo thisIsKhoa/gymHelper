@@ -33,17 +33,52 @@
 html,
 body,
 #root {
+    width: 100%;
     min-height: 100%;
+    overflow-x: hidden;
 }
 
 body {
     margin: 0;
     font-family: 'Sora', sans-serif;
+    font-size: clamp(0.95rem, 0.9rem + 0.22vw, 1.05rem);
+    line-height: 1.5;
     color: var(--text);
     background:
         radial-gradient(circle at 14% 14%, color-mix(in oklab, var(--accent) 18%, transparent), transparent 35%),
         radial-gradient(circle at 84% 4%, color-mix(in oklab, var(--accent-alt) 16%, transparent), transparent 34%),
         linear-gradient(150deg, var(--bg), color-mix(in oklab, var(--bg) 86%, #0a0e17 14%));
+}
+
+img,
+picture,
+video,
+canvas,
+svg {
+    display: block;
+    max-width: 100%;
+}
+
+img {
+    height: auto;
+    object-fit: cover;
+}
+
+button,
+input,
+select,
+textarea {
+    font: inherit;
+}
+
+button,
+a[role='button'] {
+    touch-action: manipulation;
+}
+
+:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
 }
 
 h1,
@@ -52,6 +87,7 @@ h3,
 h4 {
     font-family: 'Space Grotesk', sans-serif;
     margin: 0;
+    line-height: 1.2;
 }
 
 p {
@@ -126,5 +162,36 @@ p {
     100% {
         transform: scale(1.1);
         opacity: 0;
+    }
+}
+
+@media (max-width: 767px) {
+
+    input,
+    select,
+    textarea,
+    button {
+        font-size: 16px;
+    }
+
+    .section-enter {
+        animation: none;
+    }
+
+    .pulse-ring::after {
+        animation: none;
+        display: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
     }
 }

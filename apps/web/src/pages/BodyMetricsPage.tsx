@@ -3,12 +3,12 @@ import {
   CartesianGrid,
   Line,
   LineChart,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
 
+import { ChartContainer } from "../components/ui/ChartContainer.tsx";
 import { Card } from "../components/ui/Card.tsx";
 import { apiRequest } from "../lib/api.ts";
 
@@ -90,6 +90,8 @@ export function BodyMetricsPage() {
     return <p className="text-sm text-red-400">{error}</p>;
   }
 
+  const hasHistory = history.length > 0;
+
   return (
     <div className="grid gap-4 lg:grid-cols-[1.2fr_1.6fr]">
       <Card title="Log Weight" subtitle="Track body weight only">
@@ -132,7 +134,7 @@ export function BodyMetricsPage() {
 
           <button
             type="submit"
-            className="rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white"
+            className="min-h-11 w-full rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white sm:w-auto"
           >
             Save Weight
           </button>
@@ -145,8 +147,8 @@ export function BodyMetricsPage() {
 
       <div className="space-y-4">
         <Card title="Body Weight Progress" subtitle="Trend over time">
-          <div className="h-64 w-full">
-            <ResponsiveContainer>
+          {hasHistory ? (
+            <ChartContainer className="h-64 w-full" minHeight={220}>
               <LineChart data={history}>
                 <CartesianGrid
                   strokeDasharray="4 4"
@@ -162,13 +164,18 @@ export function BodyMetricsPage() {
                   strokeWidth={2.5}
                 />
               </LineChart>
-            </ResponsiveContainer>
-          </div>
+            </ChartContainer>
+          ) : (
+            <p className="rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-6 text-sm text-[var(--muted)]">
+              Chua co du lieu can nang. Hay luu ban ghi dau tien de bat dau theo
+              doi.
+            </p>
+          )}
         </Card>
 
         {latest ? (
           <Card title="Latest Snapshot" subtitle="Most recent measurement">
-            <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
               <div className="rounded-xl border border-[var(--border)] p-3">
                 <p className="text-[var(--muted)]">Weight</p>
                 <p className="text-lg font-semibold">{latest.weightKg} kg</p>

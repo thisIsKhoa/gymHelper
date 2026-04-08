@@ -1,4 +1,8 @@
 import { prisma } from '../../db/prisma.js';
+import { cacheNamespaces, readThroughCache, serializeCacheKey } from '../../utils/cache.js';
+
+const PROGRESS_EXERCISE_TTL_MS = 45_000;
+const PROGRESS_OVERVIEW_TTL_MS = 30_000;
 
 function weekKey(date: Date): string {
   const copy = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
@@ -16,83 +20,80 @@ function weeksAgoDate(weeks: number): Date {
 }
 
 export async function getExerciseProgressByWeek(userId: string, exerciseName: string, weeks: number) {
-  const fromDate = weeksAgoDate(weeks);
+  const normalizedExerciseName = exerciseName.trim();
 
-  const entries = await prisma.workoutEntry.findMany({
-    where: {
-      exerciseName,
-      session: {
-        userId,
-        sessionDate: {
-          gte: fromDate,
-        },
-      },
+  return readThroughCache(
+    cacheNamespaces.progressExercise,
+    serializeCacheKey([userId, normalizedExerciseName.toLowerCase(), weeks]),
+    PROGRESS_EXERCISE_TTL_MS,
+    async () => {
+      const fromDate = weeksAgoDate(weeks);
+
+      const rows = await prisma.$queryRaw<
+        Array<{
+          week_start: Date;
+          total_weighted_kg: number | null;
+          total_sets: number | bigint | null;
+          max_weight_kg: number | null;
+          total_volume: number | null;
+          max_estimated_1rm: number | null;
+        }>
+      >`
+        SELECT
+          date_trunc('week', ws."sessionDate") AS week_start,
+          SUM(COALESCE(we."weightKg", 0) * we."sets") AS total_weighted_kg,
+          SUM(we."sets") AS total_sets,
+          MAX(COALESCE(we."weightKg", 0)) AS max_weight_kg,
+          SUM(COALESCE(we."volume", 0)) AS total_volume,
+          MAX(COALESCE(we."estimated1Rm", 0)) AS max_estimated_1rm
+        FROM "WorkoutEntry" AS we
+        INNER JOIN "WorkoutSession" AS ws ON ws."id" = we."sessionId"
+        WHERE ws."userId" = ${userId}
+          AND ws."sessionDate" >= ${fromDate}
+          AND we."exerciseName" = ${normalizedExerciseName}
+        GROUP BY week_start
+        ORDER BY week_start ASC
+      `;
+
+      const points = rows.map((row) => {
+        const totalSets = Number(row.total_sets ?? 0);
+        const totalWeightedKg = Number(row.total_weighted_kg ?? 0);
+
+        return {
+          week: weekKey(new Date(row.week_start)),
+          avgWeightKg: totalSets > 0 ? Number((totalWeightedKg / totalSets).toFixed(2)) : 0,
+          maxWeightKg: Number((row.max_weight_kg ?? 0).toFixed(2)),
+          totalVolume: Number((row.total_volume ?? 0).toFixed(2)),
+          maxEstimated1Rm: Number((row.max_estimated_1rm ?? 0).toFixed(2)),
+        };
+      });
+
+      return {
+        exerciseName: normalizedExerciseName,
+        points,
+      };
     },
-    include: {
-      session: {
-        select: {
-          sessionDate: true,
-        },
-      },
-    },
-    orderBy: {
-      createdAt: 'asc',
-    },
-  });
-
-  const map = new Map<string, {
-    totalWeight: number;
-    weightedSets: number;
-    maxWeightKg: number;
-    totalVolume: number;
-    maxEstimated1Rm: number;
-  }>();
-
-  for (const entry of entries) {
-    const key = weekKey(entry.session.sessionDate);
-    const current = map.get(key) ?? {
-      totalWeight: 0,
-      weightedSets: 0,
-      maxWeightKg: 0,
-      totalVolume: 0,
-      maxEstimated1Rm: 0,
-    };
-    const weight = entry.weightKg ?? 0;
-
-    current.totalWeight += weight;
-    current.weightedSets += entry.sets;
-    current.maxWeightKg = Math.max(current.maxWeightKg, weight);
-    current.totalVolume += entry.volume;
-    current.maxEstimated1Rm = Math.max(current.maxEstimated1Rm, entry.estimated1Rm);
-
-    map.set(key, current);
-  }
-
-  const points = Array.from(map.entries()).map(([week, value]) => ({
-    week,
-    avgWeightKg: value.weightedSets > 0 ? Number((value.totalWeight / value.weightedSets).toFixed(2)) : 0,
-    maxWeightKg: Number(value.maxWeightKg.toFixed(2)),
-    totalVolume: Number(value.totalVolume.toFixed(2)),
-    maxEstimated1Rm: Number(value.maxEstimated1Rm.toFixed(2)),
-  }));
-
-  return {
-    exerciseName,
-    points,
-  };
+  );
 }
 
 export async function getProgressOverview(userId: string) {
-  const [bench, prs] = await Promise.all([
-    getExerciseProgressByWeek(userId, 'Bench Press', 16),
-    prisma.personalRecord.findMany({
-      where: { userId },
-      orderBy: [{ bestWeightKg: 'desc' }, { bestVolume: 'desc' }],
-    }),
-  ]);
+  return readThroughCache(
+    cacheNamespaces.progressOverview,
+    serializeCacheKey([userId]),
+    PROGRESS_OVERVIEW_TTL_MS,
+    async () => {
+      const [bench, prs] = await Promise.all([
+        getExerciseProgressByWeek(userId, 'Bench Press', 16),
+        prisma.personalRecord.findMany({
+          where: { userId },
+          orderBy: [{ bestWeightKg: 'desc' }, { bestVolume: 'desc' }],
+        }),
+      ]);
 
-  return {
-    benchProgressByWeek: bench.points,
-    personalRecords: prs,
-  };
+      return {
+        benchProgressByWeek: bench.points,
+        personalRecords: prs,
+      };
+    },
+  );
 }

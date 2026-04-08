@@ -1,4 +1,7 @@
 import { prisma } from '../../db/prisma.js';
+import { cacheNamespaces, readThroughCache, serializeCacheKey } from '../../utils/cache.js';
+
+const DASHBOARD_OVERVIEW_TTL_MS = 30_000;
 
 function dateKey(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -40,117 +43,156 @@ function calculateStreakDays(sessionDatesDesc: Date[]): number {
 }
 
 export async function getDashboardOverview(userId: string) {
-  const [sessions, prs, entries, latestBodyMetric, weeklyStatsDesc] = await Promise.all([
-    prisma.workoutSession.findMany({
-      where: { userId },
-      orderBy: { sessionDate: 'asc' },
-    }),
-    prisma.personalRecord.findMany({
-      where: { userId },
-      orderBy: [{ bestWeightKg: 'desc' }, { bestVolume: 'desc' }],
-      take: 6,
-    }),
-    prisma.workoutEntry.findMany({
-      where: {
-        session: {
-          userId,
-        },
-      },
-      orderBy: { createdAt: 'asc' },
-      include: {
-        session: {
+  return readThroughCache(
+    cacheNamespaces.dashboardOverview,
+    serializeCacheKey([userId]),
+    DASHBOARD_OVERVIEW_TTL_MS,
+    async () => {
+      const [sessions, prs, latestBodyMetric, weeklyStatsDesc, strengthRows, benchRows] = await Promise.all([
+        prisma.workoutSession.findMany({
+          where: { userId },
+          orderBy: { sessionDate: 'asc' },
           select: {
             sessionDate: true,
+            totalVolume: true,
           },
-        },
-      },
-    }),
-    prisma.bodyMetric.findFirst({
-      where: { userId },
-      orderBy: {
-        loggedAt: 'desc',
-      },
-    }),
-    prisma.weeklyWorkoutStat.findMany({
-      where: { userId },
-      orderBy: { isoWeek: 'desc' },
-      take: 12,
-    }),
-  ]);
-  const weeklyStats = [...weeklyStatsDesc].reverse();
+        }),
+        prisma.personalRecord.findMany({
+          where: { userId },
+          orderBy: [{ bestWeightKg: 'desc' }, { bestVolume: 'desc' }],
+          take: 6,
+        }),
+        prisma.bodyMetric.findFirst({
+          where: { userId },
+          orderBy: {
+            loggedAt: 'desc',
+          },
+        }),
+        prisma.weeklyWorkoutStat.findMany({
+          where: { userId },
+          orderBy: { isoWeek: 'desc' },
+          take: 12,
+        }),
+        prisma.$queryRaw<
+          Array<{
+            exercise_name: string;
+            start_weight_kg: number | null;
+            current_weight_kg: number | null;
+          }>
+        >`
+          WITH weighted AS (
+            SELECT
+              we."exerciseName" AS exercise_name,
+              we."weightKg"::double precision AS weight_kg,
+              ws."sessionDate" AS session_date,
+              we."createdAt" AS created_at
+            FROM "WorkoutEntry" AS we
+            INNER JOIN "WorkoutSession" AS ws ON ws."id" = we."sessionId"
+            WHERE ws."userId" = ${userId}
+              AND we."weightKg" IS NOT NULL
+          ),
+          first_lift AS (
+            SELECT DISTINCT ON (exercise_name)
+              exercise_name,
+              weight_kg AS start_weight_kg
+            FROM weighted
+            ORDER BY exercise_name, session_date ASC, created_at ASC
+          ),
+          latest_lift AS (
+            SELECT DISTINCT ON (exercise_name)
+              exercise_name,
+              weight_kg AS current_weight_kg
+            FROM weighted
+            ORDER BY exercise_name, session_date DESC, created_at DESC
+          ),
+          counts AS (
+            SELECT
+              exercise_name,
+              COUNT(*) AS entry_count
+            FROM weighted
+            GROUP BY exercise_name
+          )
+          SELECT
+            c.exercise_name,
+            f.start_weight_kg,
+            l.current_weight_kg
+          FROM counts AS c
+          INNER JOIN first_lift AS f ON f.exercise_name = c.exercise_name
+          INNER JOIN latest_lift AS l ON l.exercise_name = c.exercise_name
+          WHERE c.entry_count >= 2
+          ORDER BY (l.current_weight_kg - f.start_weight_kg) DESC
+          LIMIT 10
+        `,
+        prisma.$queryRaw<
+          Array<{
+            week_start: Date;
+            max_weight_kg: number | null;
+          }>
+        >`
+          SELECT
+            date_trunc('week', ws."sessionDate") AS week_start,
+            MAX(we."weightKg") AS max_weight_kg
+          FROM "WorkoutEntry" AS we
+          INNER JOIN "WorkoutSession" AS ws ON ws."id" = we."sessionId"
+          WHERE ws."userId" = ${userId}
+            AND we."weightKg" IS NOT NULL
+            AND LOWER(we."exerciseName") = 'bench press'
+          GROUP BY week_start
+          ORDER BY week_start ASC
+        `,
+      ]);
+      const weeklyStats = [...weeklyStatsDesc].reverse();
 
-  const volumeMap = new Map<string, number>();
-  for (const session of sessions) {
-    const key = dateKey(session.sessionDate);
-    volumeMap.set(key, (volumeMap.get(key) ?? 0) + session.totalVolume);
-  }
+      const volumeMap = new Map<string, number>();
+      for (const session of sessions) {
+        const key = dateKey(session.sessionDate);
+        volumeMap.set(key, (volumeMap.get(key) ?? 0) + session.totalVolume);
+      }
 
-  const frequencyMap = new Map<string, number>();
-  for (const session of sessions) {
-    const key = weekKey(session.sessionDate);
-    frequencyMap.set(key, (frequencyMap.get(key) ?? 0) + 1);
-  }
+      const strengthIncrease = strengthRows.map((row) => {
+        const startWeightKg = Number((row.start_weight_kg ?? 0).toFixed(2));
+        const currentWeightKg = Number((row.current_weight_kg ?? 0).toFixed(2));
 
-  const byExercise = new Map<string, number[]>();
-  const benchByWeek = new Map<string, number>();
-  for (const entry of entries) {
-    const weight = entry.weightKg ?? 0;
-    if (!byExercise.has(entry.exerciseName)) {
-      byExercise.set(entry.exerciseName, []);
-    }
-    byExercise.get(entry.exerciseName)!.push(weight);
+        return {
+          exerciseName: row.exercise_name,
+          startWeightKg,
+          currentWeightKg,
+          deltaKg: Number((currentWeightKg - startWeightKg).toFixed(2)),
+        };
+      });
 
-    if (entry.exerciseName.toLowerCase() === 'bench press' && weight > 0) {
-      const key = weekKey(entry.session.sessionDate);
-      benchByWeek.set(key, Math.max(benchByWeek.get(key) ?? 0, weight));
-    }
-  }
-
-  const strengthIncrease = Array.from(byExercise.entries())
-    .filter(([, weights]) => weights.length >= 2)
-    .map(([exerciseName, weights]) => {
-      const startWeightKg = weights[0] ?? 0;
-      const currentWeightKg = weights.at(-1) ?? startWeightKg;
+      const currentWeek = weekKey(new Date());
+      const currentWeekStat = weeklyStats.find((item) => item.isoWeek === currentWeek);
+      const streakDays = calculateStreakDays(
+        [...sessions]
+          .sort((a, b) => b.sessionDate.getTime() - a.sessionDate.getTime())
+          .map((session) => session.sessionDate),
+      );
 
       return {
-        exerciseName,
-        startWeightKg,
-        currentWeightKg,
-        deltaKg: Number((currentWeightKg - startWeightKg).toFixed(2)),
+        volumeTrend: Array.from(volumeMap.entries()).map(([date, volume]) => ({ date, volume })),
+        workoutFrequency: weeklyStats.map((week) => ({ week: week.isoWeek, sessionsCount: week.sessionsCount })),
+        weeklySummary: weeklyStats.map((week) => ({
+          week: week.isoWeek,
+          totalVolume: Number(week.totalVolume.toFixed(2)),
+          sessionsCount: week.sessionsCount,
+          strongestLiftKg: Number(week.strongestLiftKg.toFixed(2)),
+        })),
+        benchProgressByWeek: benchRows.map((row) => ({
+          week: weekKey(new Date(row.week_start)),
+          maxWeightKg: Number((row.max_weight_kg ?? 0).toFixed(2)),
+        })),
+        strengthIncrease,
+        prHighlights: prs,
+        latestBodyMetric,
+        thisWeek: {
+          week: currentWeek,
+          totalVolume: Number((currentWeekStat?.totalVolume ?? 0).toFixed(2)),
+          sessionsCount: currentWeekStat?.sessionsCount ?? 0,
+          strongestLiftKg: Number((currentWeekStat?.strongestLiftKg ?? 0).toFixed(2)),
+          streakDays,
+        },
       };
-    })
-    .sort((a, b) => b.deltaKg - a.deltaKg)
-    .slice(0, 10);
-
-  const currentWeek = weekKey(new Date());
-  const currentWeekStat = weeklyStats.find((item) => item.isoWeek === currentWeek);
-  const streakDays = calculateStreakDays(
-    [...sessions]
-      .sort((a, b) => b.sessionDate.getTime() - a.sessionDate.getTime())
-      .map((session) => session.sessionDate),
-  );
-
-  return {
-    volumeTrend: Array.from(volumeMap.entries()).map(([date, volume]) => ({ date, volume })),
-    workoutFrequency: Array.from(frequencyMap.entries()).map(([week, sessionsCount]) => ({ week, sessionsCount })),
-    weeklySummary: weeklyStats.map((week) => ({
-      week: week.isoWeek,
-      totalVolume: Number(week.totalVolume.toFixed(2)),
-      sessionsCount: week.sessionsCount,
-      strongestLiftKg: Number(week.strongestLiftKg.toFixed(2)),
-    })),
-    benchProgressByWeek: Array.from(benchByWeek.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([week, maxWeightKg]) => ({ week, maxWeightKg })),
-    strengthIncrease,
-    prHighlights: prs,
-    latestBodyMetric,
-    thisWeek: {
-      week: currentWeek,
-      totalVolume: Number((currentWeekStat?.totalVolume ?? 0).toFixed(2)),
-      sessionsCount: currentWeekStat?.sessionsCount ?? 0,
-      strongestLiftKg: Number((currentWeekStat?.strongestLiftKg ?? 0).toFixed(2)),
-      streakDays,
     },
-  };
+  );
 }

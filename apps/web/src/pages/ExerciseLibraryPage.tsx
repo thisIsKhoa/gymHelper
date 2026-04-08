@@ -91,7 +91,7 @@ export function ExerciseLibraryPage() {
   };
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1.1fr_1.8fr]">
+    <div className="grid gap-4 xl:grid-cols-[1.1fr_1.8fr]">
       <Card
         title="Add Custom Exercise"
         subtitle="Tag by muscle group and exercise type"
@@ -181,7 +181,7 @@ export function ExerciseLibraryPage() {
 
           <button
             type="submit"
-            className="inline-flex items-center gap-2 rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white"
+            className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white sm:w-auto"
           >
             <Plus size={16} /> Add Exercise
           </button>
@@ -197,7 +197,7 @@ export function ExerciseLibraryPage() {
           title="Exercise Library"
           subtitle="Predefined and custom movements for workout logging"
           action={
-            <label className="inline-flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-1.5 text-sm text-[var(--muted)]">
+            <label className="inline-flex min-h-11 w-full items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-1.5 text-sm text-[var(--muted)] sm:w-auto">
               <Search size={14} />
               <input
                 value={search}
@@ -209,7 +209,7 @@ export function ExerciseLibraryPage() {
                     void load();
                   }
                 }}
-                className="w-28 bg-transparent outline-none"
+                className="w-full bg-transparent outline-none sm:w-28"
                 placeholder="Search"
               />
             </label>

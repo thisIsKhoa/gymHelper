@@ -5,12 +5,12 @@ import {
   CartesianGrid,
   Line,
   LineChart,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
 
+import { ChartContainer } from "../components/ui/ChartContainer.tsx";
 import { Card } from "../components/ui/Card.tsx";
 import { apiRequest } from "../lib/api.ts";
 import type { ExerciseLibraryItem } from "../types/workout.ts";
@@ -47,6 +47,15 @@ interface WorkoutAnalytics {
     strongestLiftKg: number;
   };
   streakDays: number;
+}
+
+function formatShortWeek(isoWeek: string) {
+  const [year, week] = isoWeek.split("-W");
+  if (!week) {
+    return isoWeek;
+  }
+
+  return `${year?.slice(-2)}W${week}`;
 }
 
 export function ProgressPage() {
@@ -102,10 +111,13 @@ export function ProgressPage() {
     return <p className="text-sm text-red-400">{error}</p>;
   }
 
+  const hasExerciseData = points.length > 0;
+  const hasAnalyticsData = (analytics?.weeks.length ?? 0) > 0;
+
   return (
     <div className="grid gap-4">
       <Card title="Progress Controls" subtitle="Select exercise and timeline">
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-2">
           <label className="block">
             <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
               Exercise
@@ -145,16 +157,22 @@ export function ProgressPage() {
         title={`${selectedExercise} Weight & 1RM`}
         subtitle="Weekly max load and estimated 1RM"
       >
-        <div className="h-72 w-full">
-          <ResponsiveContainer>
+        {hasExerciseData ? (
+          <ChartContainer className="h-72 w-full" minHeight={240}>
             <LineChart data={points}>
               <CartesianGrid
                 strokeDasharray="4 4"
                 stroke="rgba(148,163,184,0.25)"
               />
-              <XAxis dataKey="week" />
+              <XAxis
+                dataKey="week"
+                tickFormatter={formatShortWeek}
+                minTickGap={24}
+              />
               <YAxis />
-              <Tooltip />
+              <Tooltip
+                labelFormatter={(label) => formatShortWeek(String(label))}
+              />
               <Line
                 type="monotone"
                 dataKey="maxWeightKg"
@@ -170,8 +188,13 @@ export function ProgressPage() {
                 dot={{ r: 2 }}
               />
             </LineChart>
-          </ResponsiveContainer>
-        </div>
+          </ChartContainer>
+        ) : (
+          <p className="rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-6 text-sm text-[var(--muted)]">
+            Chua co du lieu cho bai tap nay. Hay log them workout de thay bieu
+            do.
+          </p>
+        )}
       </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -179,50 +202,70 @@ export function ProgressPage() {
           title="Volume Progression"
           subtitle="Total weekly volume for selected exercise"
         >
-          <div className="h-64 w-full">
-            <ResponsiveContainer>
+          {hasExerciseData ? (
+            <ChartContainer className="h-64 w-full" minHeight={220}>
               <BarChart data={points}>
                 <CartesianGrid
                   strokeDasharray="4 4"
                   stroke="rgba(148,163,184,0.25)"
                 />
-                <XAxis dataKey="week" />
+                <XAxis
+                  dataKey="week"
+                  tickFormatter={formatShortWeek}
+                  minTickGap={24}
+                />
                 <YAxis />
-                <Tooltip />
+                <Tooltip
+                  labelFormatter={(label) => formatShortWeek(String(label))}
+                />
                 <Bar
                   dataKey="totalVolume"
                   fill="var(--accent-alt)"
                   radius={[8, 8, 0, 0]}
                 />
               </BarChart>
-            </ResponsiveContainer>
-          </div>
+            </ChartContainer>
+          ) : (
+            <p className="rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-6 text-sm text-[var(--muted)]">
+              Chua co du lieu volume cho bai tap nay.
+            </p>
+          )}
         </Card>
 
         <Card
           title="Weekly Frequency"
           subtitle="Sessions per week and strongest lift"
         >
-          <div className="h-64 w-full">
-            <ResponsiveContainer>
+          {hasAnalyticsData ? (
+            <ChartContainer className="h-64 w-full" minHeight={220}>
               <BarChart data={analytics?.weeks ?? []}>
                 <CartesianGrid
                   strokeDasharray="4 4"
                   stroke="rgba(148,163,184,0.25)"
                 />
-                <XAxis dataKey="isoWeek" />
+                <XAxis
+                  dataKey="isoWeek"
+                  tickFormatter={formatShortWeek}
+                  minTickGap={24}
+                />
                 <YAxis />
-                <Tooltip />
+                <Tooltip
+                  labelFormatter={(label) => formatShortWeek(String(label))}
+                />
                 <Bar
                   dataKey="sessionsCount"
                   fill="var(--accent)"
                   radius={[8, 8, 0, 0]}
                 />
               </BarChart>
-            </ResponsiveContainer>
-          </div>
+            </ChartContainer>
+          ) : (
+            <p className="rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-6 text-sm text-[var(--muted)]">
+              Chua co du lieu tan suat tap luyen.
+            </p>
+          )}
           {analytics ? (
-            <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+            <div className="mt-3 grid grid-cols-1 gap-2 text-xs sm:grid-cols-3">
               <p className="rounded-lg border border-[var(--border)] px-2 py-1 text-[var(--muted)]">
                 This week sessions: {analytics.thisWeek.sessionsCount}
               </p>
@@ -238,7 +281,7 @@ export function ProgressPage() {
       </div>
 
       <Card title="Personal Records" subtitle="Best lift per exercise">
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {records.length === 0 ? (
             <p className="text-sm text-[var(--muted)]">
               No PR data available yet.

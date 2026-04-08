@@ -179,11 +179,11 @@ export function RestTimer({
 
   return (
     <div className="space-y-4 rounded-2xl border border-[var(--border)] bg-[var(--surface-solid)] p-4">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
           Rest Countdown
         </p>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-2 text-xs text-[var(--muted)]">
             <input
               type="checkbox"
@@ -216,14 +216,14 @@ export function RestTimer({
         </div>
       </div>
 
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="font-mono text-3xl font-semibold text-[var(--text)]">
           {formatSeconds(remaining)}
         </p>
         <div className="flex items-center gap-2">
           <button
             type="button"
-            className="rounded-lg border border-[var(--border)] p-2 text-[var(--text)]"
+            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-[var(--border)] p-2 text-[var(--text)]"
             onClick={isRunning ? handlePause : handleStart}
             aria-label={isRunning ? "Pause timer" : "Start timer"}
           >
@@ -231,7 +231,7 @@ export function RestTimer({
           </button>
           <button
             type="button"
-            className="rounded-lg border border-[var(--border)] p-2 text-[var(--text)]"
+            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-[var(--border)] p-2 text-[var(--text)]"
             onClick={handleReset}
             aria-label="Reset timer"
           >
@@ -240,7 +240,7 @@ export function RestTimer({
         </div>
       </div>
 
-      <label className="flex items-center gap-2 text-sm text-[var(--muted)]">
+      <label className="flex flex-wrap items-center gap-2 text-sm text-[var(--muted)]">
         <Waves size={16} />
         Rest seconds
         <input
@@ -255,7 +255,7 @@ export function RestTimer({
               setRemaining(next);
             }
           }}
-          className="ml-auto w-24 rounded-lg border border-[var(--border)] bg-transparent px-2 py-1 text-right"
+          className="ml-0 min-h-11 w-full rounded-lg border border-[var(--border)] bg-transparent px-2 py-1 text-right sm:ml-auto sm:w-24"
         />
       </label>
     </div>

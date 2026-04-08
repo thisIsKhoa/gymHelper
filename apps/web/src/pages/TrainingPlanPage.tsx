@@ -1,4 +1,12 @@
-import { CopyPlus, GripVertical, Plus, Save, Trash2 } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  CopyPlus,
+  GripVertical,
+  Plus,
+  Save,
+  Trash2,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -567,6 +575,7 @@ export function TrainingPlanPage() {
                           onDragStart={() =>
                             setDragState({ dayIndex: index, exerciseIndex })
                           }
+                          onDragEnd={() => setDragState(null)}
                           onDragOver={(event) => event.preventDefault()}
                           onDrop={() => {
                             if (!dragState || dragState.dayIndex !== index) {
@@ -579,23 +588,61 @@ export function TrainingPlanPage() {
                             );
                             setDragState(null);
                           }}
-                          className="flex items-center justify-between gap-2 rounded-lg border border-[var(--border)] bg-transparent px-2 py-1"
+                          className="flex flex-col gap-2 rounded-lg border border-[var(--border)] bg-transparent px-2 py-1 sm:flex-row sm:items-center sm:justify-between"
                         >
-                          <span className="inline-flex items-center gap-2 text-sm">
+                          <span className="inline-flex min-w-0 items-center gap-2 text-sm">
                             <GripVertical
                               size={14}
-                              className="text-[var(--muted)]"
+                              className="shrink-0 text-[var(--muted)]"
                             />
-                            {exercise}
+                            <span className="break-words">{exercise}</span>
                           </span>
-                          <button
-                            type="button"
-                            onClick={() => removeExercise(index, exerciseIndex)}
-                            className="rounded-md border border-[var(--border)] p-1 text-[var(--muted)]"
-                            aria-label="Remove exercise"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                          <div className="flex items-center gap-1 self-end sm:self-auto">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                moveExercise(
+                                  index,
+                                  exerciseIndex,
+                                  exerciseIndex - 1,
+                                )
+                              }
+                              disabled={exerciseIndex === 0}
+                              className="rounded-md border border-[var(--border)] p-1.5 text-[var(--muted)] disabled:opacity-40"
+                              aria-label="Move exercise up"
+                            >
+                              <ArrowUp size={14} />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                moveExercise(
+                                  index,
+                                  exerciseIndex,
+                                  exerciseIndex + 1,
+                                )
+                              }
+                              disabled={
+                                exerciseIndex === day.exercises.length - 1
+                              }
+                              className="rounded-md border border-[var(--border)] p-1.5 text-[var(--muted)] disabled:opacity-40"
+                              aria-label="Move exercise down"
+                            >
+                              <ArrowDown size={14} />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                removeExercise(index, exerciseIndex)
+                              }
+                              className="rounded-md border border-[var(--border)] p-1.5 text-[var(--muted)]"
+                              aria-label="Remove exercise"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
                         </div>
                       ))}
 
@@ -606,7 +653,7 @@ export function TrainingPlanPage() {
                       ) : null}
                     </div>
 
-                    <div className="mt-2 grid gap-2 md:grid-cols-[0.8fr_1.4fr_auto]">
+                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[0.8fr_1.4fr_auto]">
                       <select
                         value={selectedMuscleGroup}
                         onChange={(event) => {
@@ -679,7 +726,7 @@ export function TrainingPlanPage() {
                         type="button"
                         onClick={() => addExercise(index)}
                         disabled={library.length === 0}
-                        className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)] px-2 py-1 text-xs"
+                        className="inline-flex items-center justify-center gap-1 rounded-lg border border-[var(--border)] px-3 py-2 text-xs"
                       >
                         <Plus size={14} /> Add
                       </button>
@@ -700,12 +747,12 @@ export function TrainingPlanPage() {
             })}
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
             <button
               type="button"
               onClick={savePlan}
               disabled={isSaving}
-              className="inline-flex items-center gap-2 rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60 sm:w-auto"
             >
               <Save size={16} /> Save Plan
             </button>
@@ -713,14 +760,14 @@ export function TrainingPlanPage() {
               type="button"
               onClick={duplicatePlan}
               disabled={isSaving}
-              className="inline-flex items-center gap-2 rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-semibold disabled:opacity-60"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-semibold disabled:opacity-60 sm:w-auto"
             >
               <CopyPlus size={16} /> Duplicate Plan
             </button>
             <button
               type="button"
               onClick={startSessionWithSelectedPlan}
-              className="inline-flex items-center gap-2 rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-semibold"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-semibold sm:w-auto"
             >
               Use In Session
             </button>

@@ -1,19 +1,41 @@
 import { Activity, Award, Calendar, Dumbbell } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   Area,
   AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
 
+import { ChartContainer } from "../components/ui/ChartContainer.tsx";
 import { Card } from "../components/ui/Card.tsx";
 import { apiRequest } from "../lib/api.ts";
+
+function formatShortDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function formatShortWeek(isoWeek: string) {
+  const [year, week] = isoWeek.split("-W");
+  if (!week) {
+    return isoWeek;
+  }
+
+  return `${year?.slice(-2)}W${week}`;
+}
 
 interface DashboardOverview {
   volumeTrend: Array<{ date: string; volume: number }>;
@@ -106,38 +128,45 @@ export function DashboardPage() {
     return <p className="text-sm text-[var(--muted)]">No dashboard data.</p>;
   }
 
+  const quickAccessItems = [
+    { label: "Start Session", icon: Dumbbell, to: "/session" },
+    { label: "Plan Week", icon: Calendar, to: "/plan" },
+    { label: "View Progress", icon: Activity, to: "/progress" },
+    { label: "Track PRs", icon: Award, to: "/progress" },
+  ];
+
   return (
     <div className="grid gap-4 md:gap-5">
-      <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <section className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3 md:grid-cols-4">
         <Card className="p-4" title="This Week Volume">
-          <p className="mt-2 text-2xl font-bold">
+          <p className="mt-1 text-xl font-bold sm:text-2xl">
             {data.thisWeek.totalVolume.toLocaleString()} kg
           </p>
-          <p className="mt-1 text-xs text-[var(--muted)]">
+          <p className="mt-1 text-[11px] text-[var(--muted)] sm:text-xs">
             Pre-aggregated weekly workload
           </p>
         </Card>
         <Card className="p-4" title="This Week Sessions">
-          <p className="mt-2 text-2xl font-bold">
+          <p className="mt-1 text-xl font-bold sm:text-2xl">
             {data.thisWeek.sessionsCount}
           </p>
-          <p className="mt-1 text-xs text-[var(--muted)]">
+          <p className="mt-1 text-[11px] text-[var(--muted)] sm:text-xs">
             Training frequency target tracker
           </p>
         </Card>
         <Card className="p-4" title="Strongest Lift">
-          <p className="mt-2 text-2xl font-bold">
+          <p className="mt-1 text-xl font-bold sm:text-2xl">
             {data.thisWeek.strongestLiftKg.toFixed(1)} kg
           </p>
-          <p className="mt-1 text-xs text-[var(--muted)]">
+          <p className="mt-1 text-[11px] text-[var(--muted)] sm:text-xs">
             Best top set in current week
           </p>
         </Card>
         <Card className="p-4" title="Current Streak">
-          <p className="mt-2 text-2xl font-bold">
+          <p className="mt-1 text-xl font-bold sm:text-2xl">
             {data.thisWeek.streakDays} days
           </p>
-          <p className="mt-1 text-xs text-[var(--muted)]">
+          <p className="mt-1 text-[11px] text-[var(--muted)] sm:text-xs">
             Consecutive training days
           </p>
         </Card>
@@ -148,8 +177,8 @@ export function DashboardPage() {
           title="Training Volume Trend"
           subtitle="Structured for chart visualization by date"
         >
-          <div className="h-64 w-full">
-            <ResponsiveContainer>
+          <div className="h-56 w-full sm:h-64">
+            <ChartContainer className="h-full w-full" minHeight={220}>
               <AreaChart data={data.volumeTrend}>
                 <defs>
                   <linearGradient id="volumeFill" x1="0" x2="0" y1="0" y2="1">
@@ -169,8 +198,16 @@ export function DashboardPage() {
                   strokeDasharray="4 4"
                   stroke="rgba(148,163,184,0.25)"
                 />
-                <XAxis dataKey="date" tickLine={false} axisLine={false} />
-                <Tooltip />
+                <XAxis
+                  dataKey="date"
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={formatShortDate}
+                  minTickGap={28}
+                />
+                <Tooltip
+                  labelFormatter={(label) => formatShortDate(String(label))}
+                />
                 <Area
                   type="monotone"
                   dataKey="volume"
@@ -179,12 +216,12 @@ export function DashboardPage() {
                   strokeWidth={2}
                 />
               </AreaChart>
-            </ResponsiveContainer>
+            </ChartContainer>
           </div>
         </Card>
 
         <Card title="PR Highlights" subtitle="Best numbers per exercise">
-          <ul className="space-y-2">
+          <ul className="max-h-64 space-y-2 overflow-y-auto pr-1 sm:max-h-none">
             {data.prHighlights.length === 0 ? (
               <li className="text-sm text-[var(--muted)]">No PR yet.</li>
             ) : (
@@ -214,23 +251,31 @@ export function DashboardPage() {
           title="Weekly Volume"
           subtitle="Fast rendering from pre-aggregated stats"
         >
-          <div className="h-60 w-full">
-            <ResponsiveContainer>
+          <div className="h-56 w-full sm:h-60">
+            <ChartContainer className="h-full w-full" minHeight={220}>
               <BarChart data={data.weeklySummary}>
                 <CartesianGrid
                   strokeDasharray="4 4"
                   stroke="rgba(148,163,184,0.25)"
                 />
-                <XAxis dataKey="week" tickLine={false} axisLine={false} />
+                <XAxis
+                  dataKey="week"
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={formatShortWeek}
+                  minTickGap={24}
+                />
                 <YAxis />
-                <Tooltip />
+                <Tooltip
+                  labelFormatter={(label) => formatShortWeek(String(label))}
+                />
                 <Bar
                   dataKey="totalVolume"
                   fill="var(--accent-alt)"
                   radius={[8, 8, 0, 0]}
                 />
               </BarChart>
-            </ResponsiveContainer>
+            </ChartContainer>
           </div>
         </Card>
 
@@ -238,40 +283,36 @@ export function DashboardPage() {
           title="Frequency + Bench Context"
           subtitle="Session cadence and benchmark lift tracking"
         >
-          <div className="space-y-3">
-            <p className="text-sm text-[var(--muted)]">
-              Total tracked sessions: {totalSessions}
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <p className="rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm text-[var(--muted)]">
+              Total sessions: {totalSessions}
             </p>
-            <p className="text-sm text-[var(--muted)]">
-              Tracked total volume: {totalVolume.toLocaleString()} kg
+            <p className="rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm text-[var(--muted)]">
+              Total volume: {totalVolume.toLocaleString()} kg
             </p>
-            <p className="text-sm text-[var(--muted)]">
-              Latest bench weekly max: {latestBench} kg
+            <p className="rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm text-[var(--muted)]">
+              Latest bench max: {latestBench} kg
             </p>
-            <p className="text-sm text-[var(--muted)]">
-              Tracked PR entries: {data.prHighlights.length}
+            <p className="rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm text-[var(--muted)]">
+              PR entries: {data.prHighlights.length}
             </p>
           </div>
         </Card>
       </div>
 
       <Card title="Quick Access" subtitle="Core tracking actions">
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          {[
-            { label: "Start Session", icon: Dumbbell },
-            { label: "Plan Week", icon: Calendar },
-            { label: "View Progress", icon: Activity },
-            { label: "Track PRs", icon: Award },
-          ].map((item) => {
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
+          {quickAccessItems.map((item) => {
             const Icon = item.icon;
             return (
-              <div
+              <Link
                 key={item.label}
-                className="rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] p-3 text-left"
+                to={item.to}
+                className="min-h-11 rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] p-3 text-left transition hover:border-[var(--accent)]"
               >
                 <Icon size={18} className="mb-2 text-[var(--accent)]" />
                 <p className="text-sm font-semibold">{item.label}</p>
-              </div>
+              </Link>
             );
           })}
         </div>

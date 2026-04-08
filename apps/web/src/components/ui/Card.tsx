@@ -16,20 +16,22 @@ export function Card({
   children,
 }: CardProps) {
   return (
-    <section className={clsx("glass-card p-5 md:p-6", className)}>
+    <section className={clsx("glass-card p-4 sm:p-5 md:p-6", className)}>
       {(title || subtitle || action) && (
-        <header className="mb-4 flex items-start justify-between gap-4">
-          <div>
+        <header className="mb-3 flex flex-col gap-2 sm:mb-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
             {title ? (
-              <h3 className="text-lg font-semibold text-[var(--text)]">
+              <h3 className="text-base font-semibold text-[var(--text)] sm:text-lg">
                 {title}
               </h3>
             ) : null}
             {subtitle ? (
-              <p className="mt-1 text-sm text-[var(--muted)]">{subtitle}</p>
+              <p className="mt-1 text-xs text-[var(--muted)] sm:text-sm">
+                {subtitle}
+              </p>
             ) : null}
           </div>
-          {action}
+          {action ? <div className="w-full sm:w-auto">{action}</div> : null}
         </header>
       )}
       {children}

@@ -2,8 +2,18 @@ import type { Prisma } from '@prisma/client';
 import { ExerciseType } from '@prisma/client';
 
 import { prisma } from '../../db/prisma.js';
+import {
+  cacheNamespaces,
+  invalidateCacheNamespaces,
+  readThroughCache,
+  serializeCacheKey,
+} from '../../utils/cache.js';
 import { HttpError } from '../../utils/http-error.js';
 import type { CreateWorkoutInput } from './workout.schemas.js';
+
+const WORKOUT_HISTORY_TTL_MS = 20_000;
+const WORKOUT_PRS_TTL_MS = 45_000;
+const WORKOUT_ANALYTICS_TTL_MS = 30_000;
 
 function calculateVolume(sets: number, reps: number, weightKg?: number): number {
   if (!weightKg) {
@@ -108,7 +118,7 @@ async function upsertPersonalRecord(
 }
 
 export async function createWorkoutSession(userId: string, input: CreateWorkoutInput) {
-  return prisma.$transaction(async (tx) => {
+  const session = await prisma.$transaction(async (tx) => {
     const session = await tx.workoutSession.create({
       data: {
         userId,
@@ -195,41 +205,65 @@ export async function createWorkoutSession(userId: string, input: CreateWorkoutI
       },
     });
   });
+
+  invalidateCacheNamespaces([
+    cacheNamespaces.dashboardOverview,
+    cacheNamespaces.progressOverview,
+    cacheNamespaces.progressExercise,
+    cacheNamespaces.workoutAnalytics,
+    cacheNamespaces.workoutHistory,
+    cacheNamespaces.workoutPrs,
+  ]);
+
+  return session;
 }
 
 export async function getWorkoutHistory(userId: string, from?: Date, to?: Date, limit?: number) {
-  const sessionDateFilter: Prisma.DateTimeFilter = {};
-  if (from) {
-    sessionDateFilter.gte = from;
-  }
-  if (to) {
-    sessionDateFilter.lte = to;
-  }
+  return readThroughCache(
+    cacheNamespaces.workoutHistory,
+    serializeCacheKey([userId, from?.toISOString() ?? null, to?.toISOString() ?? null, limit ?? null]),
+    WORKOUT_HISTORY_TTL_MS,
+    async () => {
+      const sessionDateFilter: Prisma.DateTimeFilter = {};
+      if (from) {
+        sessionDateFilter.gte = from;
+      }
+      if (to) {
+        sessionDateFilter.lte = to;
+      }
 
-  return prisma.workoutSession.findMany({
-    where: {
-      userId,
-      ...(from || to
-        ? {
-            sessionDate: sessionDateFilter,
-          }
-        : {}),
+      return prisma.workoutSession.findMany({
+        where: {
+          userId,
+          ...(from || to
+            ? {
+                sessionDate: sessionDateFilter,
+              }
+            : {}),
+        },
+        include: {
+          entries: true,
+        },
+        orderBy: {
+          sessionDate: 'desc',
+        },
+        take: limit,
+      });
     },
-    include: {
-      entries: true,
-    },
-    orderBy: {
-      sessionDate: 'desc',
-    },
-    take: limit,
-  });
+  );
 }
 
 export async function getPersonalRecords(userId: string) {
-  return prisma.personalRecord.findMany({
-    where: { userId },
-    orderBy: [{ bestWeightKg: 'desc' }, { bestVolume: 'desc' }],
-  });
+  return readThroughCache(
+    cacheNamespaces.workoutPrs,
+    serializeCacheKey([userId]),
+    WORKOUT_PRS_TTL_MS,
+    async () =>
+      prisma.personalRecord.findMany({
+        where: { userId },
+        orderBy: [{ bestWeightKg: 'desc' }, { bestVolume: 'desc' }],
+      }),
+  );
 }
 
 export async function getWorkoutSessionDetail(userId: string, sessionId: string) {
@@ -398,54 +432,61 @@ function dateOnlyKey(date: Date): string {
 }
 
 export async function getWorkoutAnalytics(userId: string, weeks = 8) {
-  const weeklyStatsDesc = await prisma.weeklyWorkoutStat.findMany({
-    where: { userId },
-    orderBy: { isoWeek: 'desc' },
-    take: Math.max(1, weeks),
-  });
-  const weeklyStats = [...weeklyStatsDesc].reverse();
+  return readThroughCache(
+    cacheNamespaces.workoutAnalytics,
+    serializeCacheKey([userId, weeks]),
+    WORKOUT_ANALYTICS_TTL_MS,
+    async () => {
+      const weeklyStatsDesc = await prisma.weeklyWorkoutStat.findMany({
+        where: { userId },
+        orderBy: { isoWeek: 'desc' },
+        take: Math.max(1, weeks),
+      });
+      const weeklyStats = [...weeklyStatsDesc].reverse();
 
-  const currentWeek = toIsoWeek(new Date());
-  const thisWeek = weeklyStats.find((item) => item.isoWeek === currentWeek) ?? null;
+      const currentWeek = toIsoWeek(new Date());
+      const thisWeek = weeklyStats.find((item) => item.isoWeek === currentWeek) ?? null;
 
-  const sessions = await prisma.workoutSession.findMany({
-    where: { userId },
-    select: { sessionDate: true },
-    orderBy: { sessionDate: 'desc' },
-    take: 180,
-  });
+      const sessions = await prisma.workoutSession.findMany({
+        where: { userId },
+        select: { sessionDate: true },
+        orderBy: { sessionDate: 'desc' },
+        take: 180,
+      });
 
-  const uniqueDates = Array.from(new Set(sessions.map((session) => dateOnlyKey(session.sessionDate))));
-  let streakDays = 0;
+      const uniqueDates = Array.from(new Set(sessions.map((session) => dateOnlyKey(session.sessionDate))));
+      let streakDays = 0;
 
-  if (uniqueDates.length > 0) {
-    streakDays = 1;
+      if (uniqueDates.length > 0) {
+        streakDays = 1;
 
-    for (let index = 1; index < uniqueDates.length; index += 1) {
-      const prev = new Date(uniqueDates[index - 1] as string);
-      const curr = new Date(uniqueDates[index] as string);
-      const diffDays = Math.round((prev.getTime() - curr.getTime()) / 86400000);
+        for (let index = 1; index < uniqueDates.length; index += 1) {
+          const prev = new Date(uniqueDates[index - 1] as string);
+          const curr = new Date(uniqueDates[index] as string);
+          const diffDays = Math.round((prev.getTime() - curr.getTime()) / 86400000);
 
-      if (diffDays === 1) {
-        streakDays += 1;
-      } else {
-        break;
+          if (diffDays === 1) {
+            streakDays += 1;
+          } else {
+            break;
+          }
+        }
       }
-    }
-  }
 
-  const strongestThisWeek = thisWeek?.strongestLiftKg ?? 0;
+      const strongestThisWeek = thisWeek?.strongestLiftKg ?? 0;
 
-  return {
-    weeks: weeklyStats,
-    thisWeek: {
-      isoWeek: currentWeek,
-      sessionsCount: thisWeek?.sessionsCount ?? 0,
-      totalVolume: thisWeek?.totalVolume ?? 0,
-      strongestLiftKg: strongestThisWeek,
+      return {
+        weeks: weeklyStats,
+        thisWeek: {
+          isoWeek: currentWeek,
+          sessionsCount: thisWeek?.sessionsCount ?? 0,
+          totalVolume: thisWeek?.totalVolume ?? 0,
+          strongestLiftKg: strongestThisWeek,
+        },
+        streakDays,
+      };
     },
-    streakDays,
-  };
+  );
 }
 
 export async function exportWorkoutHistoryCsv(userId: string): Promise<string> {

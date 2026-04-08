@@ -550,20 +550,20 @@ export function WorkoutSessionPage() {
                 </button>
               </div>
 
-              <div className="space-y-2">
+              <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
                 {plannedQueue.map((item) => {
                   const isActive = activePlannedExerciseId === item.id;
 
                   return (
                     <div
                       key={item.id}
-                      className={`flex items-center justify-between gap-2 rounded-lg border px-2 py-1.5 ${
+                      className={`flex flex-col gap-2 rounded-lg border px-2 py-1.5 sm:flex-row sm:items-center sm:justify-between ${
                         isActive
                           ? "border-[var(--accent)] bg-[color-mix(in oklab,var(--accent) 12%,transparent)]"
                           : "border-[var(--border)]"
                       }`}
                     >
-                      <div>
+                      <div className="min-w-0">
                         <p className="text-sm font-medium">
                           {item.exerciseName}
                         </p>
@@ -575,7 +575,7 @@ export function WorkoutSessionPage() {
                         </p>
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap">
                         {item.completed ? (
                           <span className="inline-flex items-center gap-1 text-xs text-emerald-400">
                             <CheckCircle2 size={14} /> Done
@@ -589,7 +589,7 @@ export function WorkoutSessionPage() {
                         <button
                           type="button"
                           onClick={() => applyPlannedExercise(item, item.id)}
-                          className="cursor-pointer rounded-md border border-[var(--border)] px-2 py-1 text-xs"
+                          className="cursor-pointer rounded-md border border-[var(--border)] px-3 py-1.5 text-xs"
                         >
                           {isActive ? "Using" : "Use"}
                         </button>
@@ -598,7 +598,7 @@ export function WorkoutSessionPage() {
                           type="button"
                           onClick={() => logPlannedExercise(item)}
                           disabled={item.completed}
-                          className="cursor-pointer rounded-md border border-[var(--border)] px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                          className="cursor-pointer rounded-md border border-[var(--border)] px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           Log
                         </button>
@@ -614,8 +614,8 @@ export function WorkoutSessionPage() {
             </p>
           )}
 
-          <div className="grid gap-3 md:grid-cols-2">
-            <label className="md:col-span-2">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="sm:col-span-2">
               <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
                 Exercise
               </span>
@@ -711,7 +711,7 @@ export function WorkoutSessionPage() {
               />
             </label>
 
-            <label className="flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm">
+            <label className="flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm sm:col-span-2">
               <input
                 type="checkbox"
                 checked={isCompleted}
@@ -728,7 +728,7 @@ export function WorkoutSessionPage() {
                 Smart suggestion
               </div>
               <p className="mt-2 text-[var(--muted)]">{suggestion.rationale}</p>
-              <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-[var(--muted)]">
+              <div className="mt-2 grid grid-cols-1 gap-2 text-xs text-[var(--muted)] sm:grid-cols-2">
                 <p>Type: {suggestion.exerciseType}</p>
                 <p>Rest: {suggestion.suggestedRestSeconds}s</p>
                 <p>
@@ -740,11 +740,11 @@ export function WorkoutSessionPage() {
             </div>
           ) : null}
 
-          <div className="mt-4 flex flex-wrap gap-2">
+          <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
             <button
               type="button"
               onClick={logEntry}
-              className="min-h-11 rounded-xl bg-[var(--accent)] px-5 py-2 text-sm font-semibold text-white"
+              className="min-h-11 w-full rounded-xl bg-[var(--accent)] px-5 py-2 text-sm font-semibold text-white"
             >
               Log Set (L)
             </button>
@@ -752,14 +752,14 @@ export function WorkoutSessionPage() {
               type="button"
               onClick={() => void saveWorkout()}
               disabled={isSaving}
-              className="min-h-11 rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-5 py-2 text-sm font-semibold"
+              className="min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-5 py-2 text-sm font-semibold"
             >
               <Save size={16} className="mr-1 inline-block" /> Save Session (S)
             </button>
             <button
               type="button"
               onClick={() => void syncQueuedWorkouts()}
-              className="min-h-11 rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-semibold"
+              className="min-h-11 w-full rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-semibold"
             >
               <WifiOff size={16} className="mr-1 inline-block" /> Sync Offline (
               {queue.length})
@@ -767,7 +767,7 @@ export function WorkoutSessionPage() {
             <button
               type="button"
               onClick={() => void exportCsv()}
-              className="min-h-11 rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-semibold"
+              className="min-h-11 w-full rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-semibold"
             >
               <ArrowDownToLine size={16} className="mr-1 inline-block" /> Export
               CSV
@@ -775,14 +775,14 @@ export function WorkoutSessionPage() {
           </div>
 
           <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] p-4">
-            <div className="mb-3 flex items-center justify-between">
+            <div className="mb-3 flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-sm font-semibold">Current Session Entries</p>
               <p className="text-xs text-[var(--muted)]">
                 Total volume: {totalVolume.toFixed(0)} kg · Max est. 1RM:{" "}
                 {maxEstimatedOneRm.toFixed(1)} kg
               </p>
             </div>
-            <div className="space-y-2">
+            <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
               {entries.length === 0 ? (
                 <p className="text-sm text-[var(--muted)]">
                   No exercises logged yet.
