@@ -1,20 +1,26 @@
 -- CreateSchema
-CREATE SCHEMA IF NOT EXISTS "public";
+CREATE SCHEMA
+IF NOT EXISTS "public";
 
 -- CreateEnum
-CREATE TYPE "public"."ExerciseType" AS ENUM ('COMPOUND', 'ISOLATION');
+CREATE TYPE "public"."ExerciseType" AS ENUM
+('COMPOUND', 'ISOLATION');
 
 -- CreateEnum
-CREATE TYPE "public"."MuscleGroup" AS ENUM ('CHEST', 'BACK', 'LEGS', 'SHOULDERS', 'ARMS', 'CORE', 'GLUTES', 'FULL_BODY');
+CREATE TYPE "public"."MuscleGroup" AS ENUM
+('CHEST', 'BACK', 'LEGS', 'SHOULDERS', 'ARMS', 'CORE', 'GLUTES', 'FULL_BODY');
 
 -- CreateEnum
-CREATE TYPE "public"."UserGoal" AS ENUM ('MUSCLE_GAIN', 'FAT_LOSS', 'STRENGTH');
+CREATE TYPE "public"."UserGoal" AS ENUM
+('MUSCLE_GAIN', 'FAT_LOSS', 'STRENGTH');
 
 -- CreateEnum
-CREATE TYPE "public"."UserLevel" AS ENUM ('BEGINNER', 'INTERMEDIATE', 'ADVANCED');
+CREATE TYPE "public"."UserLevel" AS ENUM
+('BEGINNER', 'INTERMEDIATE', 'ADVANCED');
 
 -- CreateTable
-CREATE TABLE "public"."BodyMetric" (
+CREATE TABLE "public"."BodyMetric"
+(
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "loggedAt" DATE NOT NULL,
@@ -28,7 +34,8 @@ CREATE TABLE "public"."BodyMetric" (
 );
 
 -- CreateTable
-CREATE TABLE "public"."CustomExercise" (
+CREATE TABLE "public"."CustomExercise"
+(
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "name" TEXT NOT NULL,
@@ -42,7 +49,8 @@ CREATE TABLE "public"."CustomExercise" (
 );
 
 -- CreateTable
-CREATE TABLE "public"."PersonalRecord" (
+CREATE TABLE "public"."PersonalRecord"
+(
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "exerciseName" TEXT NOT NULL,
@@ -55,7 +63,8 @@ CREATE TABLE "public"."PersonalRecord" (
 );
 
 -- CreateTable
-CREATE TABLE "public"."TrainingPlan" (
+CREATE TABLE "public"."TrainingPlan"
+(
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "name" TEXT NOT NULL,
@@ -69,7 +78,8 @@ CREATE TABLE "public"."TrainingPlan" (
 );
 
 -- CreateTable
-CREATE TABLE "public"."TrainingPlanDay" (
+CREATE TABLE "public"."TrainingPlanDay"
+(
     "id" TEXT NOT NULL,
     "planId" TEXT NOT NULL,
     "dayOfWeek" INTEGER NOT NULL,
@@ -82,7 +92,8 @@ CREATE TABLE "public"."TrainingPlanDay" (
 );
 
 -- CreateTable
-CREATE TABLE "public"."User" (
+CREATE TABLE "public"."User"
+(
     "id" TEXT NOT NULL,
     "email" TEXT NOT NULL,
     "passwordHash" TEXT NOT NULL,
@@ -96,7 +107,8 @@ CREATE TABLE "public"."User" (
 );
 
 -- CreateTable
-CREATE TABLE "public"."WeeklyWorkoutStat" (
+CREATE TABLE "public"."WeeklyWorkoutStat"
+(
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "isoWeek" TEXT NOT NULL,
@@ -110,7 +122,8 @@ CREATE TABLE "public"."WeeklyWorkoutStat" (
 );
 
 -- CreateTable
-CREATE TABLE "public"."WorkoutEntry" (
+CREATE TABLE "public"."WorkoutEntry"
+(
     "id" TEXT NOT NULL,
     "sessionId" TEXT NOT NULL,
     "exerciseName" TEXT NOT NULL,
@@ -129,7 +142,8 @@ CREATE TABLE "public"."WorkoutEntry" (
 );
 
 -- CreateTable
-CREATE TABLE "public"."WorkoutSession" (
+CREATE TABLE "public"."WorkoutSession"
+(
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "sessionDate" DATE NOT NULL,

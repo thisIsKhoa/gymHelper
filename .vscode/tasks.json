@@ -19,7 +19,7 @@
 				"run",
 				"dev",
 				"--workspace",
-				"web"
+				"apps/web"
 			],
 			"isBackground": true
 		}

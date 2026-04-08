@@ -245,6 +245,36 @@ export function WorkoutSessionPage() {
   const logEntryRef = useRef<() => void>(() => undefined);
   const saveWorkoutRef = useRef<() => Promise<void>>(async () => undefined);
   const suggestionRequestId = useRef(0);
+  const logSetPanelRef = useRef<HTMLDivElement | null>(null);
+  const timerPanelRef = useRef<HTMLDivElement | null>(null);
+
+  const scrollIntoViewOnMobile = useCallback(
+    (target: HTMLDivElement | null, block: ScrollLogicalPosition = "start") => {
+      if (!target || typeof window === "undefined") {
+        return;
+      }
+
+      if (!window.matchMedia("(max-width: 1023px)").matches) {
+        return;
+      }
+
+      window.requestAnimationFrame(() => {
+        target.scrollIntoView({
+          behavior: "smooth",
+          block,
+        });
+      });
+    },
+    [],
+  );
+
+  const scrollToTimerPanel = useCallback(() => {
+    scrollIntoViewOnMobile(timerPanelRef.current);
+  }, [scrollIntoViewOnMobile]);
+
+  const scrollToLogSetPanel = useCallback(() => {
+    scrollIntoViewOnMobile(logSetPanelRef.current);
+  }, [scrollIntoViewOnMobile]);
 
   const applyPlannedExercise = useCallback(
     (item: SessionPlanExercise, plannedExerciseId?: string) => {
@@ -326,8 +356,14 @@ export function WorkoutSessionPage() {
       setTimerStartSeconds(rest);
       setTimerStartKey((key) => key + 1);
       setStatus(`Logged planned set for ${item.exerciseName}.`);
+      scrollToTimerPanel();
     },
-    [applyPlannedExercise, markPlannedExerciseCompleted, restSeconds],
+    [
+      applyPlannedExercise,
+      markPlannedExerciseCompleted,
+      restSeconds,
+      scrollToTimerPanel,
+    ],
   );
 
   const loadLibrary = async () => {
@@ -529,6 +565,7 @@ export function WorkoutSessionPage() {
     );
     setTimerStartSeconds(restSeconds);
     setTimerStartKey((key) => key + 1);
+    scrollToTimerPanel();
   };
 
   const saveWorkout = async () => {
@@ -646,278 +683,288 @@ export function WorkoutSessionPage() {
   return (
     <div className="grid gap-3 md:gap-4 lg:grid-cols-[1.6fr_1fr]">
       <div className="min-w-0 space-y-3 md:space-y-4">
-        <Card
-          title="Start Workout"
-          subtitle="Fast one-hand logging with smart overload"
-          className="perf-contain"
-        >
-          {sessionPlan ? (
-            <div className="mb-4 rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] p-3">
-              <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
-                <div className="min-w-0 flex-1">
-                  <p className="flex items-start gap-2 text-sm font-semibold">
-                    <ClipboardList size={16} className="mt-0.5 shrink-0" />
-                    <span className="min-w-0 break-words">
-                      {sessionPlan.planName} · {sessionPlan.focus}
-                    </span>
-                  </p>
-                  <p className="mt-1 break-words text-xs text-[var(--muted)]">
-                    Auto loaded for this session · {plannedCompletedCount}/
-                    {plannedQueue.length} completed
-                  </p>
+        <div ref={logSetPanelRef} className="scroll-mt-24">
+          <Card
+            title="Start Workout"
+            subtitle="Fast one-hand logging with smart overload"
+            className="perf-contain"
+          >
+            {sessionPlan ? (
+              <div className="mb-4 rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] p-3">
+                <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="flex items-start gap-2 text-sm font-semibold">
+                      <ClipboardList size={16} className="mt-0.5 shrink-0" />
+                      <span className="min-w-0 break-words">
+                        {sessionPlan.planName} · {sessionPlan.focus}
+                      </span>
+                    </p>
+                    <p className="mt-1 break-words text-xs text-[var(--muted)]">
+                      Auto loaded for this session · {plannedCompletedCount}/
+                      {plannedQueue.length} completed
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => void loadSessionPlan()}
+                    className="inline-flex min-h-10 shrink-0 items-center rounded-lg border border-[var(--border)] px-3 py-1 text-xs"
+                  >
+                    Reload plan
+                  </button>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => void loadSessionPlan()}
-                  className="inline-flex min-h-10 shrink-0 items-center rounded-lg border border-[var(--border)] px-3 py-1 text-xs"
+                <div
+                  className="max-h-64 space-y-2 overflow-y-auto pr-1"
+                  style={PLANNED_QUEUE_LIST_STYLE}
                 >
-                  Reload plan
-                </button>
-              </div>
+                  {plannedQueue.map((item) => {
+                    const isActive = activePlannedExerciseId === item.id;
 
+                    return (
+                      <PlannedQueueRow
+                        key={item.id}
+                        item={item}
+                        isActive={isActive}
+                        onUse={handleUsePlanned}
+                        onLog={handleLogPlanned}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <p className="mb-4 rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm text-[var(--muted)]">
+                Chua co plan cho hom nay. Ban van co the log buoi tap thu cong.
+              </p>
+            )}
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="sm:col-span-2">
+                <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
+                  Exercise
+                </span>
+                <select
+                  value={selectedExercise}
+                  onChange={(event) => setSelectedExercise(event.target.value)}
+                  className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+                >
+                  {library.map((exercise) => (
+                    <option key={exercise.id} value={exercise.name}>
+                      {exercise.name} ({exercise.muscleGroup})
+                    </option>
+                  ))}
+                  {!library.some(
+                    (exercise) => exercise.name === selectedExercise,
+                  ) ? (
+                    <option value={selectedExercise}>{selectedExercise}</option>
+                  ) : null}
+                </select>
+              </label>
+
+              <label>
+                <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
+                  Sets
+                </span>
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={sets}
+                  onChange={(event) => setSets(Number(event.target.value))}
+                  className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+                />
+              </label>
+
+              <label>
+                <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
+                  Reps
+                </span>
+                <input
+                  type="number"
+                  min={1}
+                  max={30}
+                  value={reps}
+                  onChange={(event) => setReps(Number(event.target.value))}
+                  className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+                />
+              </label>
+
+              <label>
+                <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
+                  Weight (kg)
+                </span>
+                <input
+                  type="number"
+                  min={0}
+                  max={500}
+                  value={weightKg}
+                  onChange={(event) => setWeightKg(Number(event.target.value))}
+                  className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+                />
+              </label>
+
+              <label>
+                <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
+                  RPE (optional)
+                </span>
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  step={0.5}
+                  value={rpe}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    setRpe(next ? Number(next) : "");
+                  }}
+                  className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+                />
+              </label>
+
+              <label>
+                <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
+                  Rest (sec)
+                </span>
+                <input
+                  type="number"
+                  min={45}
+                  max={300}
+                  value={restSeconds}
+                  onChange={(event) =>
+                    setRestSeconds(Number(event.target.value))
+                  }
+                  className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+                />
+              </label>
+
+              <label className="flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm sm:col-span-2">
+                <input
+                  type="checkbox"
+                  checked={isCompleted}
+                  onChange={(event) => setIsCompleted(event.target.checked)}
+                />
+                Set block completed with good form
+              </label>
+            </div>
+
+            {suggestion ? (
+              <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] p-3 text-sm">
+                <div className="flex items-center gap-2 text-[var(--accent)]">
+                  <Zap size={16} />
+                  Smart suggestion
+                </div>
+                <p className="mt-2 text-[var(--muted)]">
+                  {suggestion.rationale}
+                </p>
+                <div className="mt-2 grid grid-cols-1 gap-2 text-xs text-[var(--muted)] sm:grid-cols-2">
+                  <p>Type: {suggestion.exerciseType}</p>
+                  <p>Rest: {suggestion.suggestedRestSeconds}s</p>
+                  <p>
+                    Suggested next load: {suggestion.suggestedWeightKg ?? "-"}
+                    {suggestion.suggestedWeightKg !== null ? " kg" : ""}
+                  </p>
+                  <p>Last 1RM: {suggestion.lastEstimated1Rm ?? "-"}</p>
+                </div>
+                <p className="mt-2 text-xs text-[var(--muted)]">
+                  Smart rest policy: Bench 120-180s, Isolation 60s.
+                </p>
+              </div>
+            ) : null}
+
+            <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+              <button
+                type="button"
+                onClick={logEntry}
+                className="min-h-11 w-full rounded-xl bg-[var(--accent)] px-5 py-2 text-sm font-semibold text-white"
+              >
+                Log Set (L)
+              </button>
+              <button
+                type="button"
+                onClick={() => void saveWorkout()}
+                disabled={isSaving}
+                className="min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-5 py-2 text-sm font-semibold"
+              >
+                <Save size={16} className="mr-1 inline-block" /> Save Session
+                (S)
+              </button>
+              <button
+                type="button"
+                onClick={() => void syncQueuedWorkouts()}
+                className="min-h-11 w-full rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-semibold"
+              >
+                <WifiOff size={16} className="mr-1 inline-block" /> Sync Offline
+                ({queue.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => void exportCsv()}
+                className="min-h-11 w-full rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-semibold"
+              >
+                <ArrowDownToLine size={16} className="mr-1 inline-block" />{" "}
+                Export CSV
+              </button>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] p-4">
+              <div className="mb-3 flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm font-semibold">Current Session Entries</p>
+                <p className="text-xs text-[var(--muted)]">
+                  Total volume: {totalVolume.toFixed(0)} kg · Max est. 1RM:{" "}
+                  {maxEstimatedOneRm.toFixed(1)} kg
+                </p>
+              </div>
               <div
-                className="max-h-64 space-y-2 overflow-y-auto pr-1"
-                style={PLANNED_QUEUE_LIST_STYLE}
+                className="max-h-72 space-y-2 overflow-y-auto pr-1"
+                style={SESSION_ENTRIES_LIST_STYLE}
               >
-                {plannedQueue.map((item) => {
-                  const isActive = activePlannedExerciseId === item.id;
-
-                  return (
-                    <PlannedQueueRow
-                      key={item.id}
-                      item={item}
-                      isActive={isActive}
-                      onUse={handleUsePlanned}
-                      onLog={handleLogPlanned}
-                    />
-                  );
-                })}
+                {entries.length === 0 ? (
+                  <p className="text-sm text-[var(--muted)]">
+                    No exercises logged yet.
+                  </p>
+                ) : (
+                  entries.map((entry) => (
+                    <SessionEntryRow key={entry.id} entry={entry} />
+                  ))
+                )}
               </div>
             </div>
-          ) : (
-            <p className="mb-4 rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm text-[var(--muted)]">
-              Chua co plan cho hom nay. Ban van co the log buoi tap thu cong.
-            </p>
-          )}
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="sm:col-span-2">
-              <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
-                Exercise
+            <label className="mt-4 block">
+              <span className="mb-1 block text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
+                Session notes
               </span>
-              <select
-                value={selectedExercise}
-                onChange={(event) => setSelectedExercise(event.target.value)}
+              <textarea
+                rows={3}
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
                 className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
-              >
-                {library.map((exercise) => (
-                  <option key={exercise.id} value={exercise.name}>
-                    {exercise.name} ({exercise.muscleGroup})
-                  </option>
-                ))}
-                {!library.some(
-                  (exercise) => exercise.name === selectedExercise,
-                ) ? (
-                  <option value={selectedExercise}>{selectedExercise}</option>
-                ) : null}
-              </select>
-            </label>
-
-            <label>
-              <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
-                Sets
-              </span>
-              <input
-                type="number"
-                min={1}
-                max={10}
-                value={sets}
-                onChange={(event) => setSets(Number(event.target.value))}
-                className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+                placeholder="Energy level, cues, or next-session notes..."
               />
             </label>
 
-            <label>
-              <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
-                Reps
-              </span>
-              <input
-                type="number"
-                min={1}
-                max={30}
-                value={reps}
-                onChange={(event) => setReps(Number(event.target.value))}
-                className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
-              />
-            </label>
-
-            <label>
-              <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
-                Weight (kg)
-              </span>
-              <input
-                type="number"
-                min={0}
-                max={500}
-                value={weightKg}
-                onChange={(event) => setWeightKg(Number(event.target.value))}
-                className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
-              />
-            </label>
-
-            <label>
-              <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
-                RPE (optional)
-              </span>
-              <input
-                type="number"
-                min={1}
-                max={10}
-                step={0.5}
-                value={rpe}
-                onChange={(event) => {
-                  const next = event.target.value;
-                  setRpe(next ? Number(next) : "");
-                }}
-                className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
-              />
-            </label>
-
-            <label>
-              <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
-                Rest (sec)
-              </span>
-              <input
-                type="number"
-                min={45}
-                max={300}
-                value={restSeconds}
-                onChange={(event) => setRestSeconds(Number(event.target.value))}
-                className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
-              />
-            </label>
-
-            <label className="flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm sm:col-span-2">
-              <input
-                type="checkbox"
-                checked={isCompleted}
-                onChange={(event) => setIsCompleted(event.target.checked)}
-              />
-              Set block completed with good form
-            </label>
-          </div>
-
-          {suggestion ? (
-            <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] p-3 text-sm">
-              <div className="flex items-center gap-2 text-[var(--accent)]">
-                <Zap size={16} />
-                Smart suggestion
-              </div>
-              <p className="mt-2 text-[var(--muted)]">{suggestion.rationale}</p>
-              <div className="mt-2 grid grid-cols-1 gap-2 text-xs text-[var(--muted)] sm:grid-cols-2">
-                <p>Type: {suggestion.exerciseType}</p>
-                <p>Rest: {suggestion.suggestedRestSeconds}s</p>
-                <p>
-                  Suggested next load: {suggestion.suggestedWeightKg ?? "-"}
-                  {suggestion.suggestedWeightKg !== null ? " kg" : ""}
-                </p>
-                <p>Last 1RM: {suggestion.lastEstimated1Rm ?? "-"}</p>
-              </div>
-              <p className="mt-2 text-xs text-[var(--muted)]">
-                Smart rest policy: Bench 120-180s, Isolation 60s.
-              </p>
-            </div>
-          ) : null}
-
-          <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
-            <button
-              type="button"
-              onClick={logEntry}
-              className="min-h-11 w-full rounded-xl bg-[var(--accent)] px-5 py-2 text-sm font-semibold text-white"
-            >
-              Log Set (L)
-            </button>
-            <button
-              type="button"
-              onClick={() => void saveWorkout()}
-              disabled={isSaving}
-              className="min-h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-5 py-2 text-sm font-semibold"
-            >
-              <Save size={16} className="mr-1 inline-block" /> Save Session (S)
-            </button>
-            <button
-              type="button"
-              onClick={() => void syncQueuedWorkouts()}
-              className="min-h-11 w-full rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-semibold"
-            >
-              <WifiOff size={16} className="mr-1 inline-block" /> Sync Offline (
-              {queue.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => void exportCsv()}
-              className="min-h-11 w-full rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-semibold"
-            >
-              <ArrowDownToLine size={16} className="mr-1 inline-block" /> Export
-              CSV
-            </button>
-          </div>
-
-          <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] p-4">
-            <div className="mb-3 flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-sm font-semibold">Current Session Entries</p>
-              <p className="text-xs text-[var(--muted)]">
-                Total volume: {totalVolume.toFixed(0)} kg · Max est. 1RM:{" "}
-                {maxEstimatedOneRm.toFixed(1)} kg
-              </p>
-            </div>
-            <div
-              className="max-h-72 space-y-2 overflow-y-auto pr-1"
-              style={SESSION_ENTRIES_LIST_STYLE}
-            >
-              {entries.length === 0 ? (
-                <p className="text-sm text-[var(--muted)]">
-                  No exercises logged yet.
-                </p>
-              ) : (
-                entries.map((entry) => (
-                  <SessionEntryRow key={entry.id} entry={entry} />
-                ))
-              )}
-            </div>
-          </div>
-
-          <label className="mt-4 block">
-            <span className="mb-1 block text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
-              Session notes
-            </span>
-            <textarea
-              rows={3}
-              value={notes}
-              onChange={(event) => setNotes(event.target.value)}
-              className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
-              placeholder="Energy level, cues, or next-session notes..."
-            />
-          </label>
-
-          {status ? (
-            <p className="mt-3 text-sm text-[var(--muted)]">{status}</p>
-          ) : null}
-        </Card>
+            {status ? (
+              <p className="mt-3 text-sm text-[var(--muted)]">{status}</p>
+            ) : null}
+          </Card>
+        </div>
       </div>
 
       <div className="min-w-0 space-y-3 md:space-y-4">
-        <Card
-          title="Rest Timer"
-          subtitle="Auto-starts after each logged set block"
-        >
-          <RestTimer
-            defaultSeconds={90}
-            autoStartSeconds={timerStartSeconds}
-            autoStartKey={timerStartKey}
-          />
-        </Card>
+        <div ref={timerPanelRef} className="scroll-mt-24">
+          <Card
+            title="Rest Timer"
+            subtitle="Auto-starts after each logged set block"
+          >
+            <RestTimer
+              defaultSeconds={90}
+              autoStartSeconds={timerStartSeconds}
+              autoStartKey={timerStartKey}
+              onComplete={scrollToLogSetPanel}
+            />
+          </Card>
+        </div>
 
         <Card
           title="Workout History Compare"
