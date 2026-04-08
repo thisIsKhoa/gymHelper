@@ -14,11 +14,14 @@ import type { CreateWorkoutInput } from './workout.schemas.js';
 const WORKOUT_HISTORY_TTL_MS = 20_000;
 const WORKOUT_PRS_TTL_MS = 45_000;
 const WORKOUT_ANALYTICS_TTL_MS = 30_000;
+const WORKOUT_SUGGESTION_TTL_MS = 20_000;
+const WORKOUT_HISTORY_DEFAULT_LIMIT = 30;
 
 function calculateVolume(sets: number, reps: number, weightKg?: number): number {
   if (!weightKg) {
     return 0;
   }
+
   return Number((sets * reps * weightKg).toFixed(2));
 }
 
@@ -69,7 +72,27 @@ function inferExerciseType(exerciseName: string, overrideType?: ExerciseType): E
 }
 
 function defaultRestByType(type: ExerciseType): number {
-  return type === ExerciseType.COMPOUND ? 150 : 90;
+  return type === ExerciseType.COMPOUND ? 150 : 60;
+}
+
+function isBenchVariant(exerciseName: string): boolean {
+  return normalizeExerciseName(exerciseName).includes('bench');
+}
+
+function benchRestSecondsByReps(reps?: number | null): number {
+  if (!reps || reps <= 0) {
+    return 150;
+  }
+
+  if (reps <= 5) {
+    return 180;
+  }
+
+  if (reps <= 8) {
+    return 150;
+  }
+
+  return 120;
 }
 
 async function upsertPersonalRecord(
@@ -213,6 +236,7 @@ export async function createWorkoutSession(userId: string, input: CreateWorkoutI
     cacheNamespaces.workoutAnalytics,
     cacheNamespaces.workoutHistory,
     cacheNamespaces.workoutPrs,
+    cacheNamespaces.workoutSuggestion,
   ]);
 
   return session;
@@ -224,6 +248,8 @@ export async function getWorkoutHistory(userId: string, from?: Date, to?: Date, 
     serializeCacheKey([userId, from?.toISOString() ?? null, to?.toISOString() ?? null, limit ?? null]),
     WORKOUT_HISTORY_TTL_MS,
     async () => {
+      const effectiveLimit = limit ?? (from || to ? undefined : WORKOUT_HISTORY_DEFAULT_LIMIT);
+
       const sessionDateFilter: Prisma.DateTimeFilter = {};
       if (from) {
         sessionDateFilter.gte = from;
@@ -241,13 +267,33 @@ export async function getWorkoutHistory(userId: string, from?: Date, to?: Date, 
               }
             : {}),
         },
-        include: {
-          entries: true,
+        select: {
+          id: true,
+          sessionDate: true,
+          startedAt: true,
+          endedAt: true,
+          notes: true,
+          totalVolume: true,
+          entries: {
+            select: {
+              exerciseName: true,
+              sets: true,
+              reps: true,
+              weightKg: true,
+              rpe: true,
+              isCompleted: true,
+              durationSec: true,
+              restSeconds: true,
+              volume: true,
+              estimated1Rm: true,
+            },
+            orderBy: {
+              createdAt: 'asc',
+            },
+          },
         },
-        orderBy: {
-          sessionDate: 'desc',
-        },
-        take: limit,
+        orderBy: [{ sessionDate: 'desc' }, { createdAt: 'desc' }],
+        take: effectiveLimit,
       });
     },
   );
@@ -359,19 +405,42 @@ export async function compareWorkoutSessions(userId: string, currentSessionId: s
   };
 }
 
-export async function getWorkoutSuggestion(userId: string, exerciseName: string) {
-  const [latestEntry, customExercise] = await Promise.all([
+type SuggestedEntry = {
+  weightKg: number | null;
+  reps: number;
+  rpe: number | null;
+  estimated1Rm: number;
+  isCompleted: boolean;
+  session: {
+    sessionDate: Date;
+  };
+};
+
+async function findLatestEntryForSuggestion(
+  userId: string,
+  exerciseName: string,
+): Promise<SuggestedEntry | null> {
+  const findByExercise = (useCaseInsensitive: boolean) =>
     prisma.workoutEntry.findFirst({
       where: {
-        exerciseName: {
-          equals: exerciseName,
-          mode: 'insensitive',
-        },
+        ...(useCaseInsensitive
+          ? {
+              exerciseName: {
+                equals: exerciseName,
+                mode: 'insensitive',
+              },
+            }
+          : { exerciseName }),
         session: {
           userId,
         },
       },
-      include: {
+      select: {
+        weightKg: true,
+        reps: true,
+        rpe: true,
+        estimated1Rm: true,
+        isCompleted: true,
         session: {
           select: {
             sessionDate: true,
@@ -379,52 +448,91 @@ export async function getWorkoutSuggestion(userId: string, exerciseName: string)
         },
       },
       orderBy: [{ session: { sessionDate: 'desc' } }, { createdAt: 'desc' }],
-    }),
-    prisma.customExercise.findFirst({
-      where: {
-        userId,
-        name: {
-          equals: exerciseName,
-          mode: 'insensitive',
-        },
-      },
-    }),
-  ]);
+    });
 
-  const exerciseType = inferExerciseType(exerciseName, customExercise?.exerciseType);
-  const suggestedRestSeconds = customExercise?.defaultRestSeconds ?? defaultRestByType(exerciseType);
-
-  if (!latestEntry) {
-    return {
-      exerciseName,
-      hasPreviousData: false,
-      suggestedWeightKg: null,
-      suggestedRestSeconds,
-      exerciseType,
-      rationale: 'No previous session found. Start conservative and track completion to unlock overload recommendations.',
-    };
+  const exact = await findByExercise(false);
+  if (exact) {
+    return exact;
   }
 
-  const lastWeightKg = latestEntry.weightKg ?? 0;
-  const shouldIncrease = Boolean(latestEntry.isCompleted && lastWeightKg > 0);
-  const suggestedWeightKg = shouldIncrease ? Number((lastWeightKg + 2.5).toFixed(2)) : lastWeightKg;
+  return findByExercise(true);
+}
 
-  return {
-    exerciseName,
-    hasPreviousData: true,
-    lastSessionDate: latestEntry.session.sessionDate,
-    lastWeightKg,
-    lastReps: latestEntry.reps,
-    lastRpe: latestEntry.rpe,
-    lastEstimated1Rm: latestEntry.estimated1Rm,
-    wasCompleted: latestEntry.isCompleted,
-    suggestedWeightKg,
-    suggestedRestSeconds,
-    exerciseType,
-    rationale: shouldIncrease
-      ? 'Last session was completed, so progressive overload suggests +2.5kg.'
-      : 'Keep load stable until all sets are completed with good technique.',
-  };
+async function findCustomExerciseForSuggestion(userId: string, exerciseName: string) {
+  const exact = await prisma.customExercise.findFirst({
+    where: {
+      userId,
+      name: exerciseName,
+    },
+  });
+
+  if (exact) {
+    return exact;
+  }
+
+  return prisma.customExercise.findFirst({
+    where: {
+      userId,
+      name: {
+        equals: exerciseName,
+        mode: 'insensitive',
+      },
+    },
+  });
+}
+
+export async function getWorkoutSuggestion(userId: string, exerciseName: string) {
+  const requestedExerciseName = exerciseName.trim();
+  const normalizedExerciseName = normalizeExerciseName(requestedExerciseName);
+
+  return readThroughCache(
+    cacheNamespaces.workoutSuggestion,
+    serializeCacheKey([userId, normalizedExerciseName]),
+    WORKOUT_SUGGESTION_TTL_MS,
+    async () => {
+      const [latestEntry, customExercise] = await Promise.all([
+        findLatestEntryForSuggestion(userId, requestedExerciseName),
+        findCustomExerciseForSuggestion(userId, requestedExerciseName),
+      ]);
+
+      const exerciseType = inferExerciseType(requestedExerciseName, customExercise?.exerciseType);
+      const suggestedRestSeconds = isBenchVariant(requestedExerciseName)
+        ? benchRestSecondsByReps(latestEntry?.reps ?? null)
+        : customExercise?.defaultRestSeconds ?? defaultRestByType(exerciseType);
+
+      if (!latestEntry) {
+        return {
+          exerciseName: requestedExerciseName,
+          hasPreviousData: false,
+          suggestedWeightKg: null,
+          suggestedRestSeconds,
+          exerciseType,
+          rationale: 'No previous session found. Start conservative and track completion to unlock overload recommendations.',
+        };
+      }
+
+      const lastWeightKg = latestEntry.weightKg ?? 0;
+      const shouldIncrease = Boolean(latestEntry.isCompleted && lastWeightKg > 0);
+      const suggestedWeightKg = shouldIncrease ? Number((lastWeightKg + 2.5).toFixed(2)) : lastWeightKg;
+
+      return {
+        exerciseName: requestedExerciseName,
+        hasPreviousData: true,
+        lastSessionDate: latestEntry.session.sessionDate,
+        lastWeightKg,
+        lastReps: latestEntry.reps,
+        lastRpe: latestEntry.rpe,
+        lastEstimated1Rm: latestEntry.estimated1Rm,
+        wasCompleted: latestEntry.isCompleted,
+        suggestedWeightKg,
+        suggestedRestSeconds,
+        exerciseType,
+        rationale: shouldIncrease
+          ? 'Last session was completed, so progressive overload suggests +2.5kg.'
+          : 'Keep load stable until all sets are completed with good technique.',
+      };
+    },
+  );
 }
 
 function dateOnlyKey(date: Date): string {

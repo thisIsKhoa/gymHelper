@@ -66,6 +66,7 @@ model WorkoutSession {
   entries     WorkoutEntry[]
 
   @@index([userId, sessionDate])
+  @@index([userId, sessionDate, createdAt])
 }
 
 model WorkoutEntry {
@@ -85,6 +86,8 @@ model WorkoutEntry {
   session     WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([sessionId, exerciseName])
+  @@index([sessionId, createdAt])
+  @@index([exerciseName, createdAt])
 }
 
 model PersonalRecord {
@@ -98,6 +101,7 @@ model PersonalRecord {
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, exerciseName])
+  @@index([userId, bestWeightKg, bestVolume])
 }
 
 model BodyMetric {

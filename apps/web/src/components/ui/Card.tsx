@@ -26,7 +26,7 @@ export function Card({
               </h3>
             ) : null}
             {subtitle ? (
-              <p className="mt-1 text-xs text-[var(--muted)] sm:text-sm">
+              <p className="mt-1 break-words text-xs leading-relaxed text-[var(--muted)] sm:text-sm">
                 {subtitle}
               </p>
             ) : null}

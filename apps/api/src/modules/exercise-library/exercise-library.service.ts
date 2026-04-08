@@ -24,7 +24,7 @@ function systemExercise(
     name,
     muscleGroup,
     exerciseType,
-    defaultRestSeconds,
+    defaultRestSeconds: exerciseType === ExerciseType.ISOLATION ? 60 : defaultRestSeconds,
     source: 'system',
   };
 }
@@ -154,7 +154,7 @@ export async function createCustomExercise(userId: string, input: CreateCustomEx
       name: input.name,
       muscleGroup: input.muscleGroup,
       exerciseType: input.exerciseType,
-      defaultRestSeconds: input.defaultRestSeconds ?? (input.exerciseType === ExerciseType.COMPOUND ? 150 : 90),
+      defaultRestSeconds: input.defaultRestSeconds ?? (input.exerciseType === ExerciseType.COMPOUND ? 150 : 60),
     },
   });
 }

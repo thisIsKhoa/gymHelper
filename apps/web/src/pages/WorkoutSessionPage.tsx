@@ -8,7 +8,15 @@ import {
   WifiOff,
   Zap,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 
 import { RestTimer } from "../components/workout/RestTimer.tsx";
 import { Card } from "../components/ui/Card.tsx";
@@ -108,6 +116,102 @@ function toWorkoutSessionInput(
   };
 }
 
+const PLANNED_QUEUE_LIST_STYLE: CSSProperties = {
+  contentVisibility: "auto",
+  containIntrinsicSize: "420px",
+};
+
+const SESSION_ENTRIES_LIST_STYLE: CSSProperties = {
+  contentVisibility: "auto",
+  containIntrinsicSize: "360px",
+};
+
+interface PlannedQueueRowProps {
+  item: PlannedQueueItem;
+  isActive: boolean;
+  onUse: (item: PlannedQueueItem) => void;
+  onLog: (item: PlannedQueueItem) => void;
+}
+
+const PlannedQueueRow = memo(function PlannedQueueRow({
+  item,
+  isActive,
+  onUse,
+  onLog,
+}: PlannedQueueRowProps) {
+  return (
+    <div
+      className={`flex flex-col gap-2 rounded-lg border px-2 py-1.5 sm:flex-row sm:items-center sm:justify-between ${
+        isActive
+          ? "border-[var(--accent)] bg-[color-mix(in oklab,var(--accent) 12%,transparent)]"
+          : "border-[var(--border)]"
+      }`}
+    >
+      <div className="min-w-0">
+        <p className="break-words text-sm font-medium">{item.exerciseName}</p>
+        <p className="text-xs text-[var(--muted)]">
+          {item.sets} x {item.reps}
+          {typeof item.targetWeightKg === "number"
+            ? ` @ ${item.targetWeightKg}kg`
+            : ""}
+        </p>
+      </div>
+
+      <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-nowrap sm:items-center">
+        {item.completed ? (
+          <span className="col-span-2 inline-flex items-center gap-1 text-xs text-emerald-400 sm:col-span-1">
+            <CheckCircle2 size={14} /> Done
+          </span>
+        ) : isActive ? (
+          <span className="col-span-2 inline-flex items-center gap-1 text-xs text-[var(--accent)] sm:col-span-1">
+            In form
+          </span>
+        ) : null}
+
+        <button
+          type="button"
+          onClick={() => onUse(item)}
+          className="min-h-10 w-full cursor-pointer rounded-md border border-[var(--border)] px-3 py-1.5 text-xs sm:min-h-0 sm:w-auto"
+        >
+          {isActive ? "Using" : "Use"}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onLog(item)}
+          disabled={item.completed}
+          className="min-h-10 w-full cursor-pointer rounded-md border border-[var(--border)] px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0 sm:w-auto"
+        >
+          Log
+        </button>
+      </div>
+    </div>
+  );
+});
+
+interface SessionEntryRowProps {
+  entry: ExerciseEntryInput;
+}
+
+const SessionEntryRow = memo(function SessionEntryRow({
+  entry,
+}: SessionEntryRowProps) {
+  return (
+    <div className="rounded-lg border border-[var(--border)] p-3 text-sm">
+      <p className="font-semibold">{entry.exerciseName}</p>
+      <p className="text-[var(--muted)]">
+        {entry.sets} x {entry.reps}
+        {entry.weightKg ? ` @ ${entry.weightKg}kg` : ""} · RPE{" "}
+        {entry.rpe ?? "-"} · Rest {entry.restSeconds}s
+      </p>
+      <p className="text-xs text-[var(--muted)]">
+        Volume {calculateVolume(entry).toFixed(0)} kg · 1RM{" "}
+        {estimateOneRepMax(entry.weightKg, entry.reps).toFixed(1)} kg
+      </p>
+    </div>
+  );
+});
+
 export function WorkoutSessionPage() {
   const [entries, setEntries] = useState<ExerciseEntryInput[]>([]);
   const [library, setLibrary] = useState<ExerciseLibraryItem[]>([]);
@@ -138,60 +242,34 @@ export function WorkoutSessionPage() {
   const [status, setStatus] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const startedAt = useRef(new Date());
+  const logEntryRef = useRef<() => void>(() => undefined);
+  const saveWorkoutRef = useRef<() => Promise<void>>(async () => undefined);
+  const suggestionRequestId = useRef(0);
 
-  const applyPlannedExercise = (
-    item: SessionPlanExercise,
-    plannedExerciseId?: string,
-  ) => {
-    if (plannedExerciseId) {
-      setActivePlannedExerciseId(plannedExerciseId);
-    }
+  const applyPlannedExercise = useCallback(
+    (item: SessionPlanExercise, plannedExerciseId?: string) => {
+      if (plannedExerciseId) {
+        setActivePlannedExerciseId(plannedExerciseId);
+      }
 
-    setSelectedExercise(item.exerciseName);
-    setSets(item.sets);
-    setReps(item.reps);
+      setSelectedExercise(item.exerciseName);
+      setSets(item.sets);
+      setReps(item.reps);
 
-    if (typeof item.targetWeightKg === "number") {
-      setWeightKg(item.targetWeightKg);
-    }
+      if (typeof item.targetWeightKg === "number") {
+        setWeightKg(item.targetWeightKg);
+      }
 
-    if (typeof item.restSeconds === "number") {
-      setRestSeconds(item.restSeconds);
-    }
+      if (typeof item.restSeconds === "number") {
+        setRestSeconds(item.restSeconds);
+      }
 
-    setStatus(`Loaded ${item.exerciseName} into the logger.`);
-  };
+      setStatus(`Loaded ${item.exerciseName} into the logger.`);
+    },
+    [],
+  );
 
-  const logPlannedExercise = (item: PlannedQueueItem) => {
-    const rest =
-      typeof item.restSeconds === "number" && item.restSeconds > 0
-        ? item.restSeconds
-        : restSeconds;
-
-    applyPlannedExercise(item, item.id);
-
-    const next: ExerciseEntryInput = {
-      id: crypto.randomUUID(),
-      exerciseName: item.exerciseName.trim(),
-      sets: item.sets,
-      reps: item.reps,
-      weightKg:
-        typeof item.targetWeightKg === "number" && item.targetWeightKg > 0
-          ? item.targetWeightKg
-          : undefined,
-      rpe: undefined,
-      isCompleted: true,
-      restSeconds: rest,
-    };
-
-    setEntries((current) => [next, ...current]);
-    markPlannedExerciseCompleted(next.exerciseName);
-    setTimerStartSeconds(rest);
-    setTimerStartKey((key) => key + 1);
-    setStatus(`Logged planned set for ${item.exerciseName}.`);
-  };
-
-  const markPlannedExerciseCompleted = (exerciseName: string) => {
+  const markPlannedExerciseCompleted = useCallback((exerciseName: string) => {
     const normalized = exerciseName.trim().toLowerCase();
 
     setPlannedQueue((current) => {
@@ -218,7 +296,39 @@ export function WorkoutSessionPage() {
 
       return next;
     });
-  };
+  }, []);
+
+  const logPlannedExercise = useCallback(
+    (item: PlannedQueueItem) => {
+      const rest =
+        typeof item.restSeconds === "number" && item.restSeconds > 0
+          ? item.restSeconds
+          : restSeconds;
+
+      applyPlannedExercise(item, item.id);
+
+      const next: ExerciseEntryInput = {
+        id: crypto.randomUUID(),
+        exerciseName: item.exerciseName.trim(),
+        sets: item.sets,
+        reps: item.reps,
+        weightKg:
+          typeof item.targetWeightKg === "number" && item.targetWeightKg > 0
+            ? item.targetWeightKg
+            : undefined,
+        rpe: undefined,
+        isCompleted: true,
+        restSeconds: rest,
+      };
+
+      setEntries((current) => [next, ...current]);
+      markPlannedExerciseCompleted(next.exerciseName);
+      setTimerStartSeconds(rest);
+      setTimerStartKey((key) => key + 1);
+      setStatus(`Logged planned set for ${item.exerciseName}.`);
+    },
+    [applyPlannedExercise, markPlannedExerciseCompleted, restSeconds],
+  );
 
   const loadLibrary = async () => {
     try {
@@ -299,39 +409,43 @@ export function WorkoutSessionPage() {
   }, []);
 
   useEffect(() => {
+    const requestId = suggestionRequestId.current + 1;
+    suggestionRequestId.current = requestId;
     let cancelled = false;
-
-    async function loadSuggestion() {
-      if (!selectedExercise.trim()) {
-        return;
-      }
-
-      try {
-        const result = await apiRequest<WorkoutSuggestion>(
-          `/workouts/suggestion?exerciseName=${encodeURIComponent(selectedExercise)}`,
-          "GET",
-        );
-
-        if (cancelled) {
+    const timer = window.setTimeout(() => {
+      async function loadSuggestion() {
+        if (!selectedExercise.trim()) {
           return;
         }
 
-        setSuggestion(result);
-        if (result.suggestedWeightKg !== null) {
-          setWeightKg(result.suggestedWeightKg);
-        }
-        setRestSeconds(result.suggestedRestSeconds);
-      } catch {
-        if (!cancelled) {
-          setSuggestion(null);
+        try {
+          const result = await apiRequest<WorkoutSuggestion>(
+            `/workouts/suggestion?exerciseName=${encodeURIComponent(selectedExercise)}`,
+            "GET",
+          );
+
+          if (cancelled || suggestionRequestId.current !== requestId) {
+            return;
+          }
+
+          setSuggestion(result);
+          if (result.suggestedWeightKg !== null) {
+            setWeightKg(result.suggestedWeightKg);
+          }
+          setRestSeconds(result.suggestedRestSeconds);
+        } catch {
+          if (!cancelled && suggestionRequestId.current === requestId) {
+            setSuggestion(null);
+          }
         }
       }
-    }
 
-    void loadSuggestion();
+      void loadSuggestion();
+    }, 120);
 
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
   }, [selectedExercise]);
 
@@ -349,28 +463,18 @@ export function WorkoutSessionPage() {
 
       if (event.key.toLowerCase() === "l") {
         event.preventDefault();
-        logEntry();
+        logEntryRef.current();
       }
 
       if (event.key.toLowerCase() === "s") {
         event.preventDefault();
-        void saveWorkout();
+        void saveWorkoutRef.current();
       }
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [
-    selectedExercise,
-    sets,
-    reps,
-    weightKg,
-    rpe,
-    restSeconds,
-    isCompleted,
-    notes,
-    entries,
-  ]);
+  }, []);
 
   const totalVolume = useMemo(() => {
     return entries.reduce((acc, entry) => acc + calculateVolume(entry), 0);
@@ -386,6 +490,20 @@ export function WorkoutSessionPage() {
   const plannedCompletedCount = useMemo(() => {
     return plannedQueue.filter((item) => item.completed).length;
   }, [plannedQueue]);
+
+  const handleUsePlanned = useCallback(
+    (item: PlannedQueueItem) => {
+      applyPlannedExercise(item, item.id);
+    },
+    [applyPlannedExercise],
+  );
+
+  const handleLogPlanned = useCallback(
+    (item: PlannedQueueItem) => {
+      logPlannedExercise(item);
+    },
+    [logPlannedExercise],
+  );
 
   const logEntry = () => {
     if (!selectedExercise.trim()) {
@@ -447,6 +565,11 @@ export function WorkoutSessionPage() {
       setIsSaving(false);
     }
   };
+
+  useEffect(() => {
+    logEntryRef.current = logEntry;
+    saveWorkoutRef.current = saveWorkout;
+  });
 
   const syncQueuedWorkouts = async () => {
     const queued = getQueuedWorkouts();
@@ -521,21 +644,24 @@ export function WorkoutSessionPage() {
   };
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
-      <div className="space-y-4">
+    <div className="grid gap-3 md:gap-4 lg:grid-cols-[1.6fr_1fr]">
+      <div className="min-w-0 space-y-3 md:space-y-4">
         <Card
           title="Start Workout"
-          subtitle="Fast one-hand set logging with smart overload support"
+          subtitle="Fast one-hand logging with smart overload"
+          className="perf-contain"
         >
           {sessionPlan ? (
             <div className="mb-4 rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] p-3">
-              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <p className="inline-flex items-center gap-2 text-sm font-semibold">
-                    <ClipboardList size={16} /> {sessionPlan.planName} ·{" "}
-                    {sessionPlan.focus}
+              <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <p className="flex items-start gap-2 text-sm font-semibold">
+                    <ClipboardList size={16} className="mt-0.5 shrink-0" />
+                    <span className="min-w-0 break-words">
+                      {sessionPlan.planName} · {sessionPlan.focus}
+                    </span>
                   </p>
-                  <p className="text-xs text-[var(--muted)]">
+                  <p className="mt-1 break-words text-xs text-[var(--muted)]">
                     Auto loaded for this session · {plannedCompletedCount}/
                     {plannedQueue.length} completed
                   </p>
@@ -544,66 +670,27 @@ export function WorkoutSessionPage() {
                 <button
                   type="button"
                   onClick={() => void loadSessionPlan()}
-                  className="rounded-lg border border-[var(--border)] px-2 py-1 text-xs"
+                  className="inline-flex min-h-10 shrink-0 items-center rounded-lg border border-[var(--border)] px-3 py-1 text-xs"
                 >
                   Reload plan
                 </button>
               </div>
 
-              <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+              <div
+                className="max-h-64 space-y-2 overflow-y-auto pr-1"
+                style={PLANNED_QUEUE_LIST_STYLE}
+              >
                 {plannedQueue.map((item) => {
                   const isActive = activePlannedExerciseId === item.id;
 
                   return (
-                    <div
+                    <PlannedQueueRow
                       key={item.id}
-                      className={`flex flex-col gap-2 rounded-lg border px-2 py-1.5 sm:flex-row sm:items-center sm:justify-between ${
-                        isActive
-                          ? "border-[var(--accent)] bg-[color-mix(in oklab,var(--accent) 12%,transparent)]"
-                          : "border-[var(--border)]"
-                      }`}
-                    >
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium">
-                          {item.exerciseName}
-                        </p>
-                        <p className="text-xs text-[var(--muted)]">
-                          {item.sets} x {item.reps}
-                          {typeof item.targetWeightKg === "number"
-                            ? ` @ ${item.targetWeightKg}kg`
-                            : ""}
-                        </p>
-                      </div>
-
-                      <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap">
-                        {item.completed ? (
-                          <span className="inline-flex items-center gap-1 text-xs text-emerald-400">
-                            <CheckCircle2 size={14} /> Done
-                          </span>
-                        ) : isActive ? (
-                          <span className="inline-flex items-center gap-1 text-xs text-[var(--accent)]">
-                            In form
-                          </span>
-                        ) : null}
-
-                        <button
-                          type="button"
-                          onClick={() => applyPlannedExercise(item, item.id)}
-                          className="cursor-pointer rounded-md border border-[var(--border)] px-3 py-1.5 text-xs"
-                        >
-                          {isActive ? "Using" : "Use"}
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => logPlannedExercise(item)}
-                          disabled={item.completed}
-                          className="cursor-pointer rounded-md border border-[var(--border)] px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          Log
-                        </button>
-                      </div>
-                    </div>
+                      item={item}
+                      isActive={isActive}
+                      onUse={handleUsePlanned}
+                      onLog={handleLogPlanned}
+                    />
                   );
                 })}
               </div>
@@ -737,6 +824,9 @@ export function WorkoutSessionPage() {
                 </p>
                 <p>Last 1RM: {suggestion.lastEstimated1Rm ?? "-"}</p>
               </div>
+              <p className="mt-2 text-xs text-[var(--muted)]">
+                Smart rest policy: Bench 120-180s, Isolation 60s.
+              </p>
             </div>
           ) : null}
 
@@ -782,29 +872,17 @@ export function WorkoutSessionPage() {
                 {maxEstimatedOneRm.toFixed(1)} kg
               </p>
             </div>
-            <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+            <div
+              className="max-h-72 space-y-2 overflow-y-auto pr-1"
+              style={SESSION_ENTRIES_LIST_STYLE}
+            >
               {entries.length === 0 ? (
                 <p className="text-sm text-[var(--muted)]">
                   No exercises logged yet.
                 </p>
               ) : (
                 entries.map((entry) => (
-                  <div
-                    key={entry.id}
-                    className="rounded-lg border border-[var(--border)] p-3 text-sm"
-                  >
-                    <p className="font-semibold">{entry.exerciseName}</p>
-                    <p className="text-[var(--muted)]">
-                      {entry.sets} x {entry.reps}
-                      {entry.weightKg ? ` @ ${entry.weightKg}kg` : ""} · RPE{" "}
-                      {entry.rpe ?? "-"} · Rest {entry.restSeconds}s
-                    </p>
-                    <p className="text-xs text-[var(--muted)]">
-                      Volume {calculateVolume(entry).toFixed(0)} kg · 1RM{" "}
-                      {estimateOneRepMax(entry.weightKg, entry.reps).toFixed(1)}{" "}
-                      kg
-                    </p>
-                  </div>
+                  <SessionEntryRow key={entry.id} entry={entry} />
                 ))
               )}
             </div>
@@ -829,7 +907,7 @@ export function WorkoutSessionPage() {
         </Card>
       </div>
 
-      <div className="space-y-4">
+      <div className="min-w-0 space-y-3 md:space-y-4">
         <Card
           title="Rest Timer"
           subtitle="Auto-starts after each logged set block"
@@ -844,6 +922,7 @@ export function WorkoutSessionPage() {
         <Card
           title="Workout History Compare"
           subtitle="Compare today vs previous session"
+          className="perf-contain"
         >
           <div className="space-y-2">
             {history.length === 0 ? (

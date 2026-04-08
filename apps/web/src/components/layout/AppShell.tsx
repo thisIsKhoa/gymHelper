@@ -23,11 +23,11 @@ const navItems = [
     shortLabel: "Home",
     icon: LayoutDashboard,
   },
-  { to: "/session", label: "Session", shortLabel: "Session", icon: Dumbbell },
+  { to: "/session", label: "Session", shortLabel: "Sess", icon: Dumbbell },
   { to: "/plan", label: "Plan", shortLabel: "Plan", icon: CalendarClock },
   { to: "/progress", label: "Progress", shortLabel: "Stats", icon: BarChart3 },
   { to: "/metrics", label: "Metrics", shortLabel: "Body", icon: HeartPulse },
-  { to: "/library", label: "Library", shortLabel: "Library", icon: BookOpen },
+  { to: "/library", label: "Library", shortLabel: "Lib", icon: BookOpen },
 ];
 
 function titleFromPath(pathname: string): string {
@@ -52,7 +52,7 @@ export function AppShell() {
       <header className="sticky top-0 z-20 border-b border-[var(--border)] bg-[color:var(--surface)]/90 px-4 py-3 backdrop-blur md:px-6">
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between">
           <div className="min-w-0">
-            <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--muted)] sm:text-xs sm:tracking-[0.18em]">
+            <p className="max-w-[12.5rem] truncate text-[11px] uppercase tracking-[0.16em] text-[var(--muted)] sm:max-w-none sm:text-xs sm:tracking-[0.18em]">
               Personal Workout Tracker
             </p>
             <h1 className="truncate text-xl font-bold sm:text-2xl">

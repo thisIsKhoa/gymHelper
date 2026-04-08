@@ -1,7 +1,9 @@
 import { Pause, Play, RotateCcw, Waves } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 
 import { getTimerSocket } from "../../lib/timer-socket.ts";
+
+const WEB_TIMER_ALERT_VISIBLE_MS = 5_000;
 
 interface RestTimerProps {
   defaultSeconds?: number;
@@ -37,7 +39,7 @@ function playAlertTone() {
   oscillator.stop(context.currentTime + 0.3);
 }
 
-export function RestTimer({
+export const RestTimer = memo(function RestTimer({
   defaultSeconds = 90,
   autoStartSeconds,
   autoStartKey,
@@ -48,8 +50,10 @@ export function RestTimer({
   const [isRunning, setIsRunning] = useState(false);
   const [useSocketSync, setUseSocketSync] = useState(false);
   const [alertsEnabled, setAlertsEnabled] = useState(true);
+  const [webAlertMessage, setWebAlertMessage] = useState<string | null>(null);
 
   const intervalRef = useRef<number | null>(null);
+  const webAlertTimeoutRef = useRef<number | null>(null);
   const socketRef = useRef(getTimerSocket());
 
   const progress = useMemo(() => {
@@ -59,6 +63,19 @@ export function RestTimer({
     return Math.max(0, Math.min(100, (remaining / duration) * 100));
   }, [duration, remaining]);
 
+  const showWebAlert = (message: string) => {
+    setWebAlertMessage(message);
+
+    if (webAlertTimeoutRef.current) {
+      window.clearTimeout(webAlertTimeoutRef.current);
+    }
+
+    webAlertTimeoutRef.current = window.setTimeout(() => {
+      setWebAlertMessage(null);
+      webAlertTimeoutRef.current = null;
+    }, WEB_TIMER_ALERT_VISIBLE_MS);
+  };
+
   const notifyDone = () => {
     if (alertsEnabled) {
       playAlertTone();
@@ -66,6 +83,8 @@ export function RestTimer({
         navigator.vibrate([120, 80, 120]);
       }
     }
+
+    showWebAlert("Rest finished. Time for your next set.");
 
     onComplete?.();
   };
@@ -104,6 +123,10 @@ export function RestTimer({
     return () => {
       if (intervalRef.current) {
         window.clearInterval(intervalRef.current);
+      }
+
+      if (webAlertTimeoutRef.current) {
+        window.clearTimeout(webAlertTimeoutRef.current);
       }
     };
   }, []);
@@ -190,7 +213,7 @@ export function RestTimer({
               checked={alertsEnabled}
               onChange={(event) => setAlertsEnabled(event.target.checked)}
             />
-            Alert
+            Sound + Vibration
           </label>
           <label className="flex items-center gap-2 text-xs text-[var(--muted)]">
             <input
@@ -203,6 +226,16 @@ export function RestTimer({
         </div>
       </div>
 
+      {webAlertMessage ? (
+        <p
+          role="status"
+          aria-live="polite"
+          className="rounded-lg border border-emerald-500/50 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200"
+        >
+          {webAlertMessage}
+        </p>
+      ) : null}
+
       <div className="rounded-xl bg-[var(--surface)] p-3">
         <div className="mb-2 flex items-center justify-between text-xs text-[var(--muted)]">
           <span>Remaining</span>
@@ -210,7 +243,7 @@ export function RestTimer({
         </div>
         <div className="h-2 overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
           <div
-            className="h-full rounded-full bg-[var(--accent-alt)] transition-all"
+            className="h-full rounded-full bg-[var(--accent-alt)] transition-[width] duration-300 ease-linear will-change-[width]"
             style={{ width: `${progress}%` }}
           />
         </div>
@@ -260,4 +293,4 @@ export function RestTimer({
       </label>
     </div>
   );
-}
+});

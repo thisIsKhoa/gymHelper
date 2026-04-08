@@ -3,10 +3,6 @@ import { cacheNamespaces, readThroughCache, serializeCacheKey } from '../../util
 
 const DASHBOARD_OVERVIEW_TTL_MS = 30_000;
 
-function dateKey(date: Date) {
-  return date.toISOString().slice(0, 10);
-}
-
 function weekKey(date: Date) {
   const copy = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
   const dayNum = copy.getUTCDay() || 7;
@@ -48,15 +44,32 @@ export async function getDashboardOverview(userId: string) {
     serializeCacheKey([userId]),
     DASHBOARD_OVERVIEW_TTL_MS,
     async () => {
-      const [sessions, prs, latestBodyMetric, weeklyStatsDesc, strengthRows, benchRows] = await Promise.all([
-        prisma.workoutSession.findMany({
-          where: { userId },
-          orderBy: { sessionDate: 'asc' },
-          select: {
-            sessionDate: true,
-            totalVolume: true,
-          },
-        }),
+      const [volumeRows, streakSessions, prs, latestBodyMetric, weeklyStatsDesc, strengthRows, benchRows] =
+        await Promise.all([
+          prisma.$queryRaw<
+            Array<{
+              session_date: Date;
+              total_volume: number | null;
+            }>
+          >`
+            SELECT
+              ws."sessionDate" AS session_date,
+              SUM(ws."totalVolume") AS total_volume
+            FROM "WorkoutSession" AS ws
+            WHERE ws."userId" = ${userId}
+            GROUP BY ws."sessionDate"
+            ORDER BY ws."sessionDate" ASC
+          `,
+          prisma.workoutSession.findMany({
+            where: { userId },
+            select: {
+              sessionDate: true,
+            },
+            orderBy: {
+              sessionDate: 'desc',
+            },
+            take: 180,
+          }),
         prisma.personalRecord.findMany({
           where: { userId },
           orderBy: [{ bestWeightKg: 'desc' }, { bestVolume: 'desc' }],
@@ -136,18 +149,12 @@ export async function getDashboardOverview(userId: string) {
           INNER JOIN "WorkoutSession" AS ws ON ws."id" = we."sessionId"
           WHERE ws."userId" = ${userId}
             AND we."weightKg" IS NOT NULL
-            AND LOWER(we."exerciseName") = 'bench press'
+            AND we."exerciseName" IN ('Bench Press', 'bench press')
           GROUP BY week_start
           ORDER BY week_start ASC
         `,
       ]);
       const weeklyStats = [...weeklyStatsDesc].reverse();
-
-      const volumeMap = new Map<string, number>();
-      for (const session of sessions) {
-        const key = dateKey(session.sessionDate);
-        volumeMap.set(key, (volumeMap.get(key) ?? 0) + session.totalVolume);
-      }
 
       const strengthIncrease = strengthRows.map((row) => {
         const startWeightKg = Number((row.start_weight_kg ?? 0).toFixed(2));
@@ -163,14 +170,15 @@ export async function getDashboardOverview(userId: string) {
 
       const currentWeek = weekKey(new Date());
       const currentWeekStat = weeklyStats.find((item) => item.isoWeek === currentWeek);
-      const streakDays = calculateStreakDays(
-        [...sessions]
-          .sort((a, b) => b.sessionDate.getTime() - a.sessionDate.getTime())
-          .map((session) => session.sessionDate),
-      );
+      const streakDays = calculateStreakDays(streakSessions.map((session) => session.sessionDate));
+
+      const volumeTrend = volumeRows.map((row) => ({
+        date: row.session_date.toISOString().slice(0, 10),
+        volume: Number((row.total_volume ?? 0).toFixed(2)),
+      }));
 
       return {
-        volumeTrend: Array.from(volumeMap.entries()).map(([date, volume]) => ({ date, volume })),
+        volumeTrend,
         workoutFrequency: weeklyStats.map((week) => ({ week: week.isoWeek, sessionsCount: week.sessionsCount })),
         weeklySummary: weeklyStats.map((week) => ({
           week: week.isoWeek,
