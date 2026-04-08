@@ -1,7 +1,7 @@
 import { prisma } from '../../db/prisma.js';
 import {
   cacheNamespaces,
-  invalidateCacheNamespaces,
+  invalidateCacheKeys,
   readThroughCache,
   serializeCacheKey,
 } from '../../utils/cache.js';
@@ -22,10 +22,19 @@ export async function createBodyMetric(userId: string, input: CreateBodyMetricIn
     },
   });
 
-  invalidateCacheNamespaces([
-    cacheNamespaces.dashboardOverview,
-    cacheNamespaces.bodyMetricHistory,
-    cacheNamespaces.bodyMetricLatest,
+  invalidateCacheKeys([
+    {
+      namespace: cacheNamespaces.dashboardOverview,
+      key: serializeCacheKey([userId]),
+    },
+    {
+      namespace: cacheNamespaces.bodyMetricHistory,
+      key: serializeCacheKey([userId, null, null]),
+    },
+    {
+      namespace: cacheNamespaces.bodyMetricLatest,
+      key: serializeCacheKey([userId]),
+    },
   ]);
 
   return metric;

@@ -1,7 +1,7 @@
 import { prisma } from '../../db/prisma.js';
 import { cacheNamespaces, readThroughCache, serializeCacheKey } from '../../utils/cache.js';
 
-const DASHBOARD_OVERVIEW_TTL_MS = 30_000;
+const DASHBOARD_OVERVIEW_TTL_MS = 180_000;
 
 function weekKey(date: Date) {
   const copy = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));

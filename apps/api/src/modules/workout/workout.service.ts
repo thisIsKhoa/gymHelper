@@ -4,18 +4,21 @@ import { ExerciseType } from '@prisma/client';
 import { prisma } from '../../db/prisma.js';
 import {
   cacheNamespaces,
-  invalidateCacheNamespaces,
+  invalidateCacheKeys,
   readThroughCache,
   serializeCacheKey,
 } from '../../utils/cache.js';
 import { HttpError } from '../../utils/http-error.js';
 import type { CreateWorkoutInput } from './workout.schemas.js';
 
-const WORKOUT_HISTORY_TTL_MS = 20_000;
+const WORKOUT_HISTORY_TTL_MS = 180_000;
 const WORKOUT_PRS_TTL_MS = 45_000;
 const WORKOUT_ANALYTICS_TTL_MS = 30_000;
 const WORKOUT_SUGGESTION_TTL_MS = 20_000;
 const WORKOUT_HISTORY_DEFAULT_LIMIT = 30;
+const COMMON_HISTORY_LIMITS: ReadonlyArray<number | null> = [null, 8];
+const COMMON_PROGRESS_WEEKS: ReadonlyArray<number> = [8, 12, 16, 24];
+const COMMON_ANALYTIC_WEEKS: ReadonlyArray<number> = [8, 12, 16, 24];
 
 function calculateVolume(sets: number, reps: number, weightKg?: number): number {
   if (!weightKg) {
@@ -229,15 +232,54 @@ export async function createWorkoutSession(userId: string, input: CreateWorkoutI
     });
   });
 
-  invalidateCacheNamespaces([
-    cacheNamespaces.dashboardOverview,
-    cacheNamespaces.progressOverview,
-    cacheNamespaces.progressExercise,
-    cacheNamespaces.workoutAnalytics,
-    cacheNamespaces.workoutHistory,
-    cacheNamespaces.workoutPrs,
-    cacheNamespaces.workoutSuggestion,
-  ]);
+  const normalizedExerciseNames = Array.from(
+    new Set(input.entries.map((entry) => normalizeExerciseName(entry.exerciseName))),
+  );
+
+  const cacheEntries: Array<{ namespace: string; key: string }> = [
+    {
+      namespace: cacheNamespaces.dashboardOverview,
+      key: serializeCacheKey([userId]),
+    },
+    {
+      namespace: cacheNamespaces.progressOverview,
+      key: serializeCacheKey([userId]),
+    },
+    {
+      namespace: cacheNamespaces.workoutPrs,
+      key: serializeCacheKey([userId]),
+    },
+  ];
+
+  for (const limit of COMMON_HISTORY_LIMITS) {
+    cacheEntries.push({
+      namespace: cacheNamespaces.workoutHistory,
+      key: serializeCacheKey([userId, null, null, limit]),
+    });
+  }
+
+  for (const weeks of COMMON_ANALYTIC_WEEKS) {
+    cacheEntries.push({
+      namespace: cacheNamespaces.workoutAnalytics,
+      key: serializeCacheKey([userId, weeks]),
+    });
+  }
+
+  for (const exerciseName of normalizedExerciseNames) {
+    cacheEntries.push({
+      namespace: cacheNamespaces.workoutSuggestion,
+      key: serializeCacheKey([userId, exerciseName]),
+    });
+
+    for (const weeks of COMMON_PROGRESS_WEEKS) {
+      cacheEntries.push({
+        namespace: cacheNamespaces.progressExercise,
+        key: serializeCacheKey([userId, exerciseName, weeks]),
+      });
+    }
+  }
+
+  invalidateCacheKeys(cacheEntries);
 
   return session;
 }
