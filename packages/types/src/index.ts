@@ -15,6 +15,7 @@ export interface ExerciseInput {
 export interface WorkoutSessionInput {
   startedAt: string;
   endedAt?: string;
+  timezoneOffsetMinutes?: number;
   notes?: string;
   entries: ExerciseInput[];
 }

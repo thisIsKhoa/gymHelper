@@ -31,6 +31,24 @@ interface BodyMetricPoint {
   notes?: string | null;
 }
 
+interface PaginatedResponse<T> {
+  items: T[];
+  pagination: {
+    limit: number;
+    offset: number;
+    hasMore: boolean;
+    nextOffset: number | null;
+  };
+}
+
+const BODY_METRICS_HISTORY_PAGE_SIZE = 30;
+
+function sortByLoggedAtAsc(points: BodyMetricPoint[]): BodyMetricPoint[] {
+  return [...points].sort(
+    (a, b) => new Date(a.loggedAt).getTime() - new Date(b.loggedAt).getTime(),
+  );
+}
+
 export function BodyMetricsPage() {
   const [form, setForm] = useState<BodyMetricInput>({
     loggedAt: new Date().toISOString().slice(0, 10),
@@ -40,6 +58,9 @@ export function BodyMetricsPage() {
     notes: "",
   });
   const [history, setHistory] = useState<BodyMetricPoint[]>([]);
+  const [historyOffset, setHistoryOffset] = useState(0);
+  const [historyHasMore, setHistoryHasMore] = useState(false);
+  const [isLoadingMoreHistory, setIsLoadingMoreHistory] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -49,11 +70,13 @@ export function BodyMetricsPage() {
     setError(null);
 
     try {
-      const result = await apiRequest<BodyMetricPoint[]>(
-        "/body-metrics/history",
+      const result = await apiRequest<PaginatedResponse<BodyMetricPoint>>(
+        `/body-metrics/history?limit=${BODY_METRICS_HISTORY_PAGE_SIZE}&offset=0`,
         "GET",
       );
-      setHistory(result);
+      setHistory(sortByLoggedAtAsc(result.items));
+      setHistoryHasMore(result.pagination.hasMore);
+      setHistoryOffset(result.pagination.nextOffset ?? result.items.length);
     } catch (loadError) {
       setError(
         loadError instanceof Error
@@ -62,6 +85,30 @@ export function BodyMetricsPage() {
       );
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const loadMoreHistory = async () => {
+    if (!historyHasMore || isLoadingMoreHistory) {
+      return;
+    }
+
+    setIsLoadingMoreHistory(true);
+    try {
+      const result = await apiRequest<PaginatedResponse<BodyMetricPoint>>(
+        `/body-metrics/history?limit=${BODY_METRICS_HISTORY_PAGE_SIZE}&offset=${historyOffset}`,
+        "GET",
+      );
+
+      setHistory((current) => sortByLoggedAtAsc([...current, ...result.items]));
+      setHistoryHasMore(result.pagination.hasMore);
+      setHistoryOffset(
+        result.pagination.nextOffset ?? historyOffset + result.items.length,
+      );
+    } catch {
+      setStatus("Failed to load older metrics.");
+    } finally {
+      setIsLoadingMoreHistory(false);
     }
   };
 
@@ -276,6 +323,21 @@ export function BodyMetricsPage() {
               No body metric data yet. Save your first entry to start tracking.
             </p>
           )}
+
+          {hasHistory ? (
+            <button
+              type="button"
+              onClick={() => void loadMoreHistory()}
+              disabled={!historyHasMore || isLoadingMoreHistory}
+              className="mt-3 w-full rounded-xl border border-[var(--border)] px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isLoadingMoreHistory
+                ? "Loading older entries..."
+                : historyHasMore
+                  ? "Load older entries"
+                  : "All loaded"}
+            </button>
+          ) : null}
         </Card>
 
         {hasHistory && !hasCompositionData ? (

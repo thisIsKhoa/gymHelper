@@ -25,7 +25,8 @@
 - `pages/WorkoutSessionPage.tsx`
   - set logging with RPE and completion flag
   - smart overload + rest suggestion panel
-  - offline queue + manual sync
+  - IndexedDB offline queue + manual sync
+  - paginated history compare with load-older actions
   - workout history comparison
   - CSV export action
 
@@ -42,6 +43,7 @@
 - `pages/BodyMetricsPage.tsx`
   - metric entry form (weight + optional body-fat + optional muscle-mass + notes)
   - weight/composition trend chart and latest snapshot cards
+  - paginated history loading for long-term tracking
 
 ## Training Plan
 

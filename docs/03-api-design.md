@@ -13,8 +13,9 @@ Base URL: `/api/v1`
 
 - `POST /workouts`
   - Log exercises with sets/reps/weight/rpe/rest/completion
+  - Accepts optional `timezoneOffsetMinutes` to resolve local-day boundaries correctly
   - Updates PR table automatically
-- `GET /workouts/history?from&to`
+- `GET /workouts/history?from&to&limit&offset`
 - `GET /workouts/history/:sessionId`
 - `GET /workouts/compare?currentSessionId=&previousSessionId=`
 - `GET /workouts/suggestion?exerciseName=Bench%20Press`
@@ -40,7 +41,7 @@ Base URL: `/api/v1`
 ## Body Metrics
 
 - `POST /body-metrics`
-- `GET /body-metrics/history?from&to`
+- `GET /body-metrics/history?from&to&limit&offset`
 - `GET /body-metrics/latest`
 
 ## Training Plan

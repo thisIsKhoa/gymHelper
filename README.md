@@ -17,6 +17,7 @@ Modern full-stack app for individual workout logging, progression analytics, bod
 - Body Metrics: weight, optional body fat %, optional muscle mass, trend charts
 - Training Plan: create, edit, duplicate, and reuse weekly schedules (Push/Pull/Legs etc.)
 - Rest Timer: built-in countdown per set with optional socket sync
+- Offline-First PWA: service worker app-shell cache + IndexedDB workout sync queue
 
 ## Quick Start
 
@@ -61,10 +62,10 @@ docs/          Architecture, ERD, API, UI, key code examples
 - `POST /api/v1/auth/logout`
 - `GET /api/v1/auth/me`
 - `POST /api/v1/workouts`
-- `GET /api/v1/workouts/history`
+- `GET /api/v1/workouts/history?limit=&offset=&from=&to=`
 - `GET /api/v1/workouts/prs`
 - `POST /api/v1/body-metrics`
-- `GET /api/v1/body-metrics/history`
+- `GET /api/v1/body-metrics/history?limit=&offset=&from=&to=`
 - `GET /api/v1/progress/overview`
 - `GET /api/v1/progress/exercise/:exerciseName`
 - `GET /api/v1/dashboard/overview`

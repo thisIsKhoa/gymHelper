@@ -64,6 +64,16 @@ interface SessionHistoryItem {
   }>;
 }
 
+interface PaginatedResponse<T> {
+  items: T[];
+  pagination: {
+    limit: number;
+    offset: number;
+    hasMore: boolean;
+    nextOffset: number | null;
+  };
+}
+
 interface SessionComparison {
   currentSession: SessionHistoryItem;
   previousSession: SessionHistoryItem | null;
@@ -101,12 +111,17 @@ interface PlannedQueueItem extends SessionPlanExercise {
 }
 
 const ACTIVE_SESSION_PLAN_ID_KEY = "gymhelper-active-session-plan-id";
+const HISTORY_PAGE_SIZE = 8;
 
 function localDateKey(date: Date = new Date()) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function getClientTimezoneOffsetMinutes(date: Date = new Date()) {
+  return -date.getTimezoneOffset();
 }
 
 function mapHistoryEntryToInput(
@@ -264,6 +279,9 @@ export function WorkoutSessionPage() {
     string | null
   >(null);
   const [history, setHistory] = useState<SessionHistoryItem[]>([]);
+  const [historyOffset, setHistoryOffset] = useState(0);
+  const [historyHasMore, setHistoryHasMore] = useState(false);
+  const [isLoadingMoreHistory, setIsLoadingMoreHistory] = useState(false);
   const [comparison, setComparison] = useState<SessionComparison | null>(null);
   const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(
     null,
@@ -362,20 +380,19 @@ export function WorkoutSessionPage() {
   const persistLoggedEntry = useCallback(
     async (entry: ExerciseEntryInput) => {
       const payload = toWorkoutSessionInput([entry], notes, startedAt.current);
+      const requestPayload = {
+        ...payload,
+        sessionDate: localDateKey(),
+        timezoneOffsetMinutes: getClientTimezoneOffsetMinutes(),
+      };
 
       try {
-        await apiRequest("/workouts", "POST", {
-          ...payload,
-          sessionDate: localDateKey(),
-        });
+        await apiRequest("/workouts", "POST", requestPayload);
         setStatus(null);
         showSuccessToast();
         void loadHistory();
       } catch (error) {
-        const queued = enqueueWorkout({
-          ...payload,
-          sessionDate: localDateKey(),
-        });
+        const queued = await enqueueWorkout(requestPayload);
         setQueue(queued);
         const offlineMessage =
           error instanceof Error
@@ -384,6 +401,7 @@ export function WorkoutSessionPage() {
         setStatus(offlineMessage);
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [notes, showSuccessToast],
   );
 
@@ -442,13 +460,15 @@ export function WorkoutSessionPage() {
 
   const loadHistory = async () => {
     try {
-      const result = await apiRequest<SessionHistoryItem[]>(
-        "/workouts/history?limit=8",
+      const result = await apiRequest<PaginatedResponse<SessionHistoryItem>>(
+        `/workouts/history?limit=${HISTORY_PAGE_SIZE}&offset=0`,
         "GET",
       );
-      setHistory(result);
+      setHistory(result.items);
+      setHistoryHasMore(result.pagination.hasMore);
+      setHistoryOffset(result.pagination.nextOffset ?? result.items.length);
 
-      const todaySession = result.find(
+      const todaySession = result.items.find(
         (session) => session.sessionDate.slice(0, 10) === localDateKey(),
       );
 
@@ -460,12 +480,39 @@ export function WorkoutSessionPage() {
         setEntries([]);
       }
 
-      if (result[0]) {
-        setSelectedHistoryId(result[0].id);
-        void loadComparison(result[0].id);
+      if (result.items[0]) {
+        setSelectedHistoryId(result.items[0].id);
+        void loadComparison(result.items[0].id);
+      } else {
+        setSelectedHistoryId(null);
+        setComparison(null);
       }
     } catch {
       setHistory([]);
+      setHistoryHasMore(false);
+      setHistoryOffset(0);
+    }
+  };
+
+  const loadMoreHistory = async () => {
+    if (!historyHasMore || isLoadingMoreHistory) {
+      return;
+    }
+
+    setIsLoadingMoreHistory(true);
+    try {
+      const result = await apiRequest<PaginatedResponse<SessionHistoryItem>>(
+        `/workouts/history?limit=${HISTORY_PAGE_SIZE}&offset=${historyOffset}`,
+        "GET",
+      );
+
+      setHistory((current) => [...current, ...result.items]);
+      setHistoryHasMore(result.pagination.hasMore);
+      setHistoryOffset(
+        result.pagination.nextOffset ?? historyOffset + result.items.length,
+      );
+    } finally {
+      setIsLoadingMoreHistory(false);
     }
   };
 
@@ -513,10 +560,14 @@ export function WorkoutSessionPage() {
   };
 
   useEffect(() => {
-    setQueue(getQueuedWorkouts());
+    void (async () => {
+      const queued = await getQueuedWorkouts();
+      setQueue(queued);
+    })();
     void loadLibrary();
     void loadSessionPlan();
     void loadHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -641,7 +692,7 @@ export function WorkoutSessionPage() {
   });
 
   const syncQueuedWorkouts = async () => {
-    const queued = getQueuedWorkouts();
+    const queued = await getQueuedWorkouts();
     if (queued.length === 0) {
       setStatus("No queued workouts.");
       return;
@@ -657,7 +708,7 @@ export function WorkoutSessionPage() {
       }
     }
 
-    replaceQueuedWorkouts(failed);
+    await replaceQueuedWorkouts(failed);
     setQueue(failed);
     if (failed.length === 0) {
       setStatus("All offline workouts synced.");
@@ -1024,6 +1075,19 @@ export function WorkoutSessionPage() {
                     ))}
                   </select>
                 </label>
+
+                <button
+                  type="button"
+                  onClick={() => void loadMoreHistory()}
+                  disabled={!historyHasMore || isLoadingMoreHistory}
+                  className="w-full rounded-xl border border-[var(--border)] px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isLoadingMoreHistory
+                    ? "Loading older sessions..."
+                    : historyHasMore
+                      ? "Load older sessions"
+                      : "All loaded"}
+                </button>
 
                 {comparison?.comparisons?.slice(0, 6).map((row) => (
                   <article

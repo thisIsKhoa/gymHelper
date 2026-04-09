@@ -16,7 +16,7 @@ export async function create(req: Request, res: Response, next: NextFunction) {
 export async function history(req: Request, res: Response, next: NextFunction) {
   try {
     const query = bodyMetricHistoryQuerySchema.parse(req.query);
-    const result = await getBodyMetricHistory(req.user!.id, query.from, query.to);
+    const result = await getBodyMetricHistory(req.user!.id, query);
     res.status(200).json(result);
   } catch (error) {
     next(error);

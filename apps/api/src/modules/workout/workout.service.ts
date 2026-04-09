@@ -4,19 +4,19 @@ import { ExerciseType } from '@prisma/client';
 import { prisma } from '../../db/prisma.js';
 import {
   cacheNamespaces,
+  invalidateCacheNamespace,
   invalidateCacheKeys,
   readThroughCache,
   serializeCacheKey,
 } from '../../utils/cache.js';
 import { HttpError } from '../../utils/http-error.js';
-import type { CreateWorkoutInput } from './workout.schemas.js';
+import type { CreateWorkoutInput, WorkoutHistoryQueryInput } from './workout.schemas.js';
 
 const WORKOUT_HISTORY_TTL_MS = 180_000;
 const WORKOUT_PRS_TTL_MS = 45_000;
 const WORKOUT_ANALYTICS_TTL_MS = 30_000;
 const WORKOUT_SUGGESTION_TTL_MS = 20_000;
 const WORKOUT_HISTORY_DEFAULT_LIMIT = 30;
-const COMMON_HISTORY_LIMITS: ReadonlyArray<number | null> = [null, 8];
 const COMMON_PROGRESS_WEEKS: ReadonlyArray<number> = [8, 12, 16, 24];
 const COMMON_ANALYTIC_WEEKS: ReadonlyArray<number> = [8, 12, 16, 24];
 
@@ -48,6 +48,11 @@ export function toIsoWeek(date: Date): string {
 
 export function toSessionDateOnly(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+}
+
+function toSessionDateOnlyInTimezone(referenceUtc: Date, timezoneOffsetMinutes: number): Date {
+  const localTime = new Date(referenceUtc.getTime() + timezoneOffsetMinutes * 60_000);
+  return new Date(Date.UTC(localTime.getUTCFullYear(), localTime.getUTCMonth(), localTime.getUTCDate()));
 }
 
 export function nextUtcDate(date: Date): Date {
@@ -162,7 +167,12 @@ async function upsertPersonalRecord(
 }
 
 export async function createWorkoutSession(userId: string, input: CreateWorkoutInput) {
-  const sessionDate = toSessionDateOnly(input.sessionDate);
+  const timezoneOffsetMinutes = typeof input.timezoneOffsetMinutes === 'number'
+    ? input.timezoneOffsetMinutes
+    : null;
+  const sessionDate = timezoneOffsetMinutes !== null
+    ? toSessionDateOnlyInTimezone(input.startedAt, timezoneOffsetMinutes)
+    : toSessionDateOnly(input.sessionDate);
   const sessionDateNext = nextUtcDate(sessionDate);
   const endedAt = input.endedAt ?? new Date();
   const normalizedNotes = input.notes?.trim() ? input.notes.trim() : undefined;
@@ -181,6 +191,7 @@ export async function createWorkoutSession(userId: string, input: CreateWorkoutI
         startedAt: true,
         endedAt: true,
         totalVolume: true,
+        timezoneOffsetMinutes: true,
       },
       orderBy: {
         createdAt: 'desc',
@@ -196,6 +207,7 @@ export async function createWorkoutSession(userId: string, input: CreateWorkoutI
                 ? existingSession.startedAt
                 : input.startedAt,
             endedAt,
+            timezoneOffsetMinutes: timezoneOffsetMinutes ?? existingSession.timezoneOffsetMinutes,
             ...(normalizedNotes ? { notes: normalizedNotes } : {}),
           },
           select: {
@@ -210,6 +222,7 @@ export async function createWorkoutSession(userId: string, input: CreateWorkoutI
             startedAt: input.startedAt,
             endedAt,
             notes: normalizedNotes,
+            timezoneOffsetMinutes,
           },
           select: {
             id: true,
@@ -323,13 +336,6 @@ export async function createWorkoutSession(userId: string, input: CreateWorkoutI
     },
   ];
 
-  for (const limit of COMMON_HISTORY_LIMITS) {
-    cacheEntries.push({
-      namespace: cacheNamespaces.workoutHistory,
-      key: serializeCacheKey([userId, null, null, limit]),
-    });
-  }
-
   for (const weeks of COMMON_ANALYTIC_WEEKS) {
     cacheEntries.push({
       namespace: cacheNamespaces.workoutAnalytics,
@@ -351,31 +357,39 @@ export async function createWorkoutSession(userId: string, input: CreateWorkoutI
     }
   }
 
+  invalidateCacheNamespace(cacheNamespaces.workoutHistory);
   invalidateCacheKeys(cacheEntries);
 
   return session;
 }
 
-export async function getWorkoutHistory(userId: string, from?: Date, to?: Date, limit?: number) {
+export async function getWorkoutHistory(userId: string, query: WorkoutHistoryQueryInput = {}) {
+  const effectiveLimit = query.limit ?? WORKOUT_HISTORY_DEFAULT_LIMIT;
+  const effectiveOffset = query.offset ?? 0;
+
+  const sessionDateFilter: Prisma.DateTimeFilter = {};
+  if (query.from) {
+    sessionDateFilter.gte = query.from;
+  }
+  if (query.to) {
+    sessionDateFilter.lte = query.to;
+  }
+
   return readThroughCache(
     cacheNamespaces.workoutHistory,
-    serializeCacheKey([userId, from?.toISOString() ?? null, to?.toISOString() ?? null, limit ?? null]),
+    serializeCacheKey([
+      userId,
+      query.from?.toISOString() ?? null,
+      query.to?.toISOString() ?? null,
+      effectiveLimit,
+      effectiveOffset,
+    ]),
     WORKOUT_HISTORY_TTL_MS,
     async () => {
-      const effectiveLimit = limit ?? (from || to ? undefined : WORKOUT_HISTORY_DEFAULT_LIMIT);
-
-      const sessionDateFilter: Prisma.DateTimeFilter = {};
-      if (from) {
-        sessionDateFilter.gte = from;
-      }
-      if (to) {
-        sessionDateFilter.lte = to;
-      }
-
-      return prisma.workoutSession.findMany({
+      const rows = await prisma.workoutSession.findMany({
         where: {
           userId,
-          ...(from || to
+          ...(query.from || query.to
             ? {
                 sessionDate: sessionDateFilter,
               }
@@ -407,8 +421,22 @@ export async function getWorkoutHistory(userId: string, from?: Date, to?: Date, 
           },
         },
         orderBy: [{ sessionDate: 'desc' }, { createdAt: 'desc' }],
-        take: effectiveLimit,
+        skip: effectiveOffset,
+        take: effectiveLimit + 1,
       });
+
+      const hasMore = rows.length > effectiveLimit;
+      const items = hasMore ? rows.slice(0, effectiveLimit) : rows;
+
+      return {
+        items,
+        pagination: {
+          limit: effectiveLimit,
+          offset: effectiveOffset,
+          hasMore,
+          nextOffset: hasMore ? effectiveOffset + effectiveLimit : null,
+        },
+      };
     },
   );
 }

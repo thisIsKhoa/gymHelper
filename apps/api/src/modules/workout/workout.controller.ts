@@ -31,7 +31,7 @@ export async function createWorkout(req: Request, res: Response, next: NextFunct
 export async function history(req: Request, res: Response, next: NextFunction) {
   try {
     const query = historyQuerySchema.parse(req.query);
-    const workouts = await getWorkoutHistory(req.user!.id, query.from, query.to, query.limit);
+    const workouts = await getWorkoutHistory(req.user!.id, query);
     res.status(200).json(workouts);
   } catch (error) {
     next(error);

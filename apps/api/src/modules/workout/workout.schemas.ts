@@ -13,6 +13,7 @@ export const workoutEntrySchema = z.object({
 
 export const createWorkoutSchema = z.object({
   sessionDate: z.coerce.date(),
+  timezoneOffsetMinutes: z.number().int().min(-840).max(840).optional(),
   startedAt: z.coerce.date(),
   endedAt: z.coerce.date().optional(),
   notes: z.string().max(500).optional(),
@@ -23,6 +24,7 @@ export const historyQuerySchema = z.object({
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
 });
 
 export const workoutSuggestionQuerySchema = z.object({
@@ -35,3 +37,4 @@ export const workoutCompareQuerySchema = z.object({
 });
 
 export type CreateWorkoutInput = z.infer<typeof createWorkoutSchema>;
+export type WorkoutHistoryQueryInput = z.infer<typeof historyQuerySchema>;
