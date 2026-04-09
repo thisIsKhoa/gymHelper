@@ -148,7 +148,7 @@ export function BodyMetricsPage() {
   }
 
   if (error) {
-    return <p className="text-sm text-red-400">{error}</p>;
+    return <p className="ui-status ui-status-danger">{error}</p>;
   }
 
   const hasHistory = history.length > 0;
@@ -166,9 +166,7 @@ export function BodyMetricsPage() {
       >
         <form className="space-y-3" onSubmit={submit}>
           <label className="block">
-            <span className="mb-1 block text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
-              Date
-            </span>
+            <span className="ui-label">Date</span>
             <input
               type="date"
               value={form.loggedAt}
@@ -178,14 +176,12 @@ export function BodyMetricsPage() {
                   loggedAt: event.target.value,
                 }))
               }
-              className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+              className="ui-input"
             />
           </label>
 
           <label className="block">
-            <span className="mb-1 block text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
-              Weight (kg)
-            </span>
+            <span className="ui-label">Weight (kg)</span>
             <input
               type="number"
               min={20}
@@ -197,14 +193,12 @@ export function BodyMetricsPage() {
                   weightKg: Number(event.target.value),
                 }))
               }
-              className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+              className="ui-input"
             />
           </label>
 
           <label className="block">
-            <span className="mb-1 block text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
-              Body Fat (%) (optional)
-            </span>
+            <span className="ui-label">Body Fat (%) (optional)</span>
             <input
               type="number"
               min={2}
@@ -219,14 +213,12 @@ export function BodyMetricsPage() {
                     : "",
                 }))
               }
-              className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+              className="ui-input"
             />
           </label>
 
           <label className="block">
-            <span className="mb-1 block text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
-              Muscle Mass (kg) (optional)
-            </span>
+            <span className="ui-label">Muscle Mass (kg) (optional)</span>
             <input
               type="number"
               min={10}
@@ -241,14 +233,12 @@ export function BodyMetricsPage() {
                     : "",
                 }))
               }
-              className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+              className="ui-input"
             />
           </label>
 
           <label className="block">
-            <span className="mb-1 block text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
-              Notes (optional)
-            </span>
+            <span className="ui-label">Notes (optional)</span>
             <textarea
               rows={3}
               value={form.notes}
@@ -259,21 +249,19 @@ export function BodyMetricsPage() {
                 }))
               }
               maxLength={240}
-              className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+              className="ui-textarea"
               placeholder="Sleep, stress, hydration, or any context for this data point"
             />
           </label>
 
           <button
             type="submit"
-            className="min-h-11 w-full rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white sm:w-auto"
+            className="ui-btn ui-btn-primary w-full sm:w-auto"
           >
             Save Metrics
           </button>
 
-          {status ? (
-            <p className="text-sm text-[var(--muted)]">{status}</p>
-          ) : null}
+          {status ? <p className="ui-status">{status}</p> : null}
         </form>
       </Card>
 
@@ -319,7 +307,7 @@ export function BodyMetricsPage() {
               </LineChart>
             </ChartContainer>
           ) : (
-            <p className="rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-6 text-sm text-[var(--muted)]">
+            <p className="ui-empty-state text-sm">
               No body metric data yet. Save your first entry to start tracking.
             </p>
           )}
@@ -329,7 +317,7 @@ export function BodyMetricsPage() {
               type="button"
               onClick={() => void loadMoreHistory()}
               disabled={!historyHasMore || isLoadingMoreHistory}
-              className="mt-3 w-full rounded-xl border border-[var(--border)] px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+              className="ui-btn ui-btn-secondary mt-3 w-full"
             >
               {isLoadingMoreHistory
                 ? "Loading older entries..."
@@ -341,7 +329,7 @@ export function BodyMetricsPage() {
         </Card>
 
         {hasHistory && !hasCompositionData ? (
-          <p className="rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-3 text-sm text-[var(--muted)]">
+          <p className="ui-status">
             Composition fields are optional. Add body fat or muscle mass when
             available for deeper trend analysis.
           </p>
@@ -350,17 +338,17 @@ export function BodyMetricsPage() {
         {latest ? (
           <Card title="Latest Snapshot" subtitle="Most recent measurement">
             <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
-              <div className="rounded-xl border border-[var(--border)] p-3">
+              <div className="ui-tile p-3">
                 <p className="text-[var(--muted)]">Weight</p>
                 <p className="text-lg font-semibold">{latest.weightKg} kg</p>
               </div>
-              <div className="rounded-xl border border-[var(--border)] p-3">
+              <div className="ui-tile p-3">
                 <p className="text-[var(--muted)]">Date</p>
                 <p className="text-lg font-semibold">
                   {new Date(latest.loggedAt).toLocaleDateString()}
                 </p>
               </div>
-              <div className="rounded-xl border border-[var(--border)] p-3">
+              <div className="ui-tile p-3">
                 <p className="text-[var(--muted)]">Body Fat</p>
                 <p className="text-lg font-semibold">
                   {typeof latest.bodyFatPct === "number"
@@ -368,7 +356,7 @@ export function BodyMetricsPage() {
                     : "-"}
                 </p>
               </div>
-              <div className="rounded-xl border border-[var(--border)] p-3">
+              <div className="ui-tile p-3">
                 <p className="text-[var(--muted)]">Muscle Mass</p>
                 <p className="text-lg font-semibold">
                   {typeof latest.muscleMassKg === "number"
@@ -379,7 +367,7 @@ export function BodyMetricsPage() {
             </div>
 
             {latest.notes ? (
-              <div className="mt-3 rounded-xl border border-[var(--border)] p-3 text-sm text-[var(--muted)]">
+              <div className="ui-panel mt-3 text-sm text-[var(--muted)]">
                 <p className="mb-1 text-xs uppercase tracking-[0.14em]">
                   Notes
                 </p>

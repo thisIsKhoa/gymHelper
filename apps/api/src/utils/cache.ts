@@ -39,6 +39,7 @@ export const cacheNamespaces = {
   workoutHistory: 'workout:history',
   workoutPrs: 'workout:prs',
   workoutSuggestion: 'workout:suggestion',
+  gamificationProfile: 'gamification:profile',
   bodyMetricHistory: 'body-metrics:history',
   bodyMetricLatest: 'body-metrics:latest',
 } as const;

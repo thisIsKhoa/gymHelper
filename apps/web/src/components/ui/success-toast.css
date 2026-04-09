@@ -1,29 +1,29 @@
 :root {
-    --toast-success: #22c55e;
-    --toast-success-bg: color-mix(in oklab, #fff 88%, #22c55e 12%);
-    --toast-success-border: color-mix(in oklab, #22c55e 26%, #fff 74%);
-    --toast-success-icon-bg: color-mix(in oklab, #dcfce7 68%, #fff 32%);
-    --toast-success-title: #0f172a;
-    --toast-success-message: #334155;
-    --toast-success-close: #475569;
-    --toast-success-progress-track: color-mix(in oklab, #22c55e 22%, transparent);
-    --toast-success-progress-fill: linear-gradient(90deg, #22c55e, #16a34a);
+    --toast-success: var(--success);
+    --toast-success-bg: color-mix(in oklab, var(--surface-solid) 86%, var(--success) 14%);
+    --toast-success-border: color-mix(in oklab, var(--success) 30%, var(--border));
+    --toast-success-icon-bg: color-mix(in oklab, var(--success) 22%, var(--surface-solid));
+    --toast-success-title: var(--text);
+    --toast-success-message: var(--text-soft);
+    --toast-success-close: var(--muted);
+    --toast-success-progress-track: color-mix(in oklab, var(--success) 24%, transparent);
+    --toast-success-progress-fill: linear-gradient(90deg, var(--success), color-mix(in oklab, var(--success) 72%, #ffffff));
 }
 
 :root[data-theme='dark'] {
-    --toast-success-bg: color-mix(in oklab, #1f2937 90%, #22c55e 10%);
-    --toast-success-border: color-mix(in oklab, #86efac 24%, #1f2937 76%);
-    --toast-success-icon-bg: color-mix(in oklab, #22c55e 22%, #111827 78%);
-    --toast-success-title: #f8fafc;
-    --toast-success-message: #cbd5e1;
-    --toast-success-close: #cbd5e1;
-    --toast-success-progress-track: color-mix(in oklab, #22c55e 34%, transparent);
-    --toast-success-progress-fill: linear-gradient(90deg, #4ade80, #22c55e);
+    --toast-success-bg: color-mix(in oklab, var(--surface-solid) 88%, var(--success) 12%);
+    --toast-success-border: color-mix(in oklab, var(--success) 32%, var(--border));
+    --toast-success-icon-bg: color-mix(in oklab, var(--success) 24%, var(--surface-elevated));
+    --toast-success-title: var(--text);
+    --toast-success-message: var(--text-soft);
+    --toast-success-close: var(--muted);
+    --toast-success-progress-track: color-mix(in oklab, var(--success) 36%, transparent);
+    --toast-success-progress-fill: linear-gradient(90deg, color-mix(in oklab, var(--success) 75%, #ffffff), var(--success));
 }
 
 .success-toast-viewport {
     position: fixed;
-    top: max(1rem, env(safe-area-inset-top) + 0.75rem);
+    top: max(0.9rem, env(safe-area-inset-top) + 0.6rem);
     right: 1rem;
     z-index: 120;
     width: min(25rem, 100vw - 2rem);
@@ -39,7 +39,7 @@
         right: auto;
         left: 50%;
         transform: translateX(-50%);
-        width: min(90vw, 25rem);
+        width: min(92vw, 25rem);
     }
 }
 
@@ -53,8 +53,8 @@
     border: 1px solid var(--toast-success-border);
     background: var(--toast-success-bg);
     box-shadow:
-        0 16px 38px rgb(15 23 42 / 13%),
-        0 5px 12px rgb(15 23 42 / 8%);
+        0 16px 38px rgb(15 23 42 / 15%),
+        0 5px 12px rgb(15 23 42 / 10%);
     backdrop-filter: blur(14px) saturate(145%);
     -webkit-backdrop-filter: blur(14px) saturate(145%);
     padding: 0.82rem 0.88rem 0.92rem;
@@ -79,7 +79,7 @@
 
 .success-toast:hover,
 .success-toast:focus-within {
-    background: color-mix(in oklab, var(--toast-success-bg) 84%, #fff 16%);
+    background: color-mix(in oklab, var(--toast-success-bg) 90%, #fff 10%);
     box-shadow:
         0 18px 44px rgb(15 23 42 / 15%),
         0 6px 14px rgb(15 23 42 / 10%);

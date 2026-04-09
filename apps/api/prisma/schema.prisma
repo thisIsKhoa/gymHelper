@@ -35,6 +35,31 @@ enum MuscleGroup {
   FULL_BODY
 }
 
+enum MuscleSkill {
+  CHEST
+  BACK
+  LATS
+  LEGS
+  ARMS
+  CORE
+}
+
+enum AchievementCode {
+  VOLUME_SESSION_1000
+  LIFETIME_VOLUME_5000000
+  DAWN_WARRIOR
+  STREAK_30_DAYS
+  PR_STREAK_3_IN_3_WEEKS
+  CLUB_100
+  OPEN_APP_7_DAYS_NO_WORKOUT
+  REST_MONSTER
+}
+
+enum GamificationNotificationType {
+  ACHIEVEMENT_UNLOCKED
+  MUSCLE_LEVEL_UP
+}
+
 model User {
   id             String              @id @default(cuid())
   email          String              @unique
@@ -50,6 +75,14 @@ model User {
   trainingPlans   TrainingPlan[]
   weeklyStats     WeeklyWorkoutStat[]
   customExercises CustomExercise[]
+  muscleSkillProgresses MuscleSkillProgress[]
+  muscleExpLedgers      MuscleExpLedger[]
+  achievements          UserAchievement[]
+  gamificationNotifications GamificationNotification[]
+  dailyAppOpens         UserDailyAppOpen[]
+  personalRecordEvents  PersonalRecordEvent[]
+  gamificationStat      UserGamificationStat?
+  gamificationJobRuns   GamificationJobRun[]
 }
 
 model WorkoutSession {
@@ -65,6 +98,9 @@ model WorkoutSession {
   updatedAt   DateTime      @updatedAt
   user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   entries     WorkoutEntry[]
+  muscleExpLedgers MuscleExpLedger[]
+  personalRecordEvents PersonalRecordEvent[]
+  gamificationJobRuns   GamificationJobRun[]
 
   @@index([userId, sessionDate])
   @@index([userId, sessionDate, createdAt])
@@ -137,7 +173,7 @@ model TrainingPlanDay {
   planId    String
   dayOfWeek Int
   focus     String
-  exercises Json
+  exercises Json         @db.JsonB
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
   plan      TrainingPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
@@ -173,4 +209,121 @@ model CustomExercise {
 
   @@unique([userId, name])
   @@index([userId, muscleGroup])
+}
+
+model MuscleSkillProgress {
+  id        String      @id @default(cuid())
+  userId    String
+  skill     MuscleSkill
+  totalExp  Float       @default(0)
+  level     Int         @default(1)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, skill])
+  @@index([userId, skill])
+}
+
+model MuscleExpLedger {
+  id               String      @id @default(cuid())
+  userId           String
+  sessionId        String
+  skill            MuscleSkill
+  isoWeek          String
+  baseExp          Float
+  rpeMultiplier    Float       @default(1)
+  streakMultiplier Float       @default(1)
+  awardedExp       Float
+  createdAt        DateTime    @default(now())
+  user             User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session          WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, skill])
+  @@index([userId, skill, isoWeek])
+  @@index([userId, createdAt])
+}
+
+model UserAchievement {
+  id            String          @id @default(cuid())
+  userId        String
+  code          AchievementCode
+  progressValue Float           @default(0)
+  targetValue   Float           @default(1)
+  isUnlocked    Boolean         @default(false)
+  unlockedAt    DateTime?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, code])
+  @@index([userId, isUnlocked])
+}
+
+model GamificationNotification {
+  id        String                       @id @default(cuid())
+  userId    String
+  type      GamificationNotificationType
+  title     String
+  message   String
+  payload   Json?                        @db.JsonB
+  createdAt DateTime                     @default(now())
+  readAt    DateTime?
+  user      User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt, createdAt])
+}
+
+model UserDailyAppOpen {
+  id           String   @id @default(cuid())
+  userId       String
+  activityDate DateTime @db.Date
+  createdAt    DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, activityDate])
+  @@index([userId, activityDate])
+}
+
+model PersonalRecordEvent {
+  id           String        @id @default(cuid())
+  userId       String
+  sessionId    String
+  exerciseName String
+  bestWeightKg Float         @default(0)
+  bestVolume   Float         @default(0)
+  achievedAt   DateTime      @default(now())
+  isoWeek      String
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session      WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([userId, achievedAt])
+  @@index([userId, exerciseName, achievedAt])
+  @@index([userId, isoWeek])
+}
+
+model UserGamificationStat {
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  totalVolumeLifted Float   @default(0)
+  maxSessionVolume Float    @default(0)
+  maxWeightKg      Float    @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model GamificationJobRun {
+  id        String   @id @default(cuid())
+  userId    String
+  sessionId String
+  jobKey    String   @unique
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session   WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([sessionId, createdAt])
 }

@@ -1,4 +1,12 @@
-import { Activity, Award, Calendar, Dumbbell } from "lucide-react";
+import {
+  Activity,
+  Award,
+  Calendar,
+  Dumbbell,
+  Medal,
+  Sparkles,
+  TrendingUp,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -36,6 +44,36 @@ function formatShortWeek(isoWeek: string) {
   }
 
   return `${year?.slice(-2)}W${week}`;
+}
+
+function formatMediumDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function categoryLabel(
+  category: DashboardOverview["completedAchievements"][number]["category"],
+) {
+  switch (category) {
+    case "volume":
+      return "Volume";
+    case "consistency":
+      return "Consistency";
+    case "pr":
+      return "Strength";
+    case "hidden":
+      return "Secret";
+    default:
+      return "Achievement";
+  }
 }
 
 interface CountUpValueProps {
@@ -159,6 +197,14 @@ interface DashboardOverview {
     bestVolume: number;
     achievedAt: string;
   }>;
+  completedAchievements: Array<{
+    code: string;
+    title: string;
+    description: string;
+    iconKey: string;
+    category: "volume" | "consistency" | "pr" | "hidden";
+    unlockedAt: string;
+  }>;
   thisWeek: {
     week: string;
     totalVolume: number;
@@ -173,10 +219,14 @@ interface DashboardOverview {
   } | null;
 }
 
+type HighlightsTab = "achievements" | "pr";
+
 export function DashboardPage() {
   const [data, setData] = useState<DashboardOverview | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [highlightsTab, setHighlightsTab] =
+    useState<HighlightsTab>("achievements");
 
   useEffect(() => {
     async function load() {
@@ -222,6 +272,7 @@ export function DashboardPage() {
 
   const latestBench = data?.benchProgressByWeek.at(-1)?.maxWeightKg ?? 0;
   const prHighlights = data?.prHighlights ?? [];
+  const completedAchievements = data?.completedAchievements ?? [];
 
   if (isLoading) {
     return <LoadingState message="Loading dashboard..." cardCount={4} />;
@@ -357,12 +408,12 @@ export function DashboardPage() {
                   <linearGradient id="volumeFill" x1="0" x2="0" y1="0" y2="1">
                     <stop
                       offset="0%"
-                      stopColor="var(--accent)"
+                      stopColor="var(--chart-primary)"
                       stopOpacity={0.6}
                     />
                     <stop
                       offset="100%"
-                      stopColor="var(--accent)"
+                      stopColor="var(--chart-primary)"
                       stopOpacity={0.05}
                     />
                   </linearGradient>
@@ -384,7 +435,7 @@ export function DashboardPage() {
                 <Area
                   type="monotone"
                   dataKey="volume"
-                  stroke="var(--accent)"
+                  stroke="var(--chart-primary)"
                   fill="url(#volumeFill)"
                   strokeWidth={2}
                 />
@@ -393,29 +444,139 @@ export function DashboardPage() {
           </div>
         </Card>
 
-        <Card title="PR Highlights" subtitle="Scrollable list">
-          <ul className="max-h-[17.25rem] space-y-2 overflow-y-auto pr-1">
-            {prHighlights.length === 0 ? (
-              <li className="text-sm text-[var(--muted)]">No PR yet.</li>
-            ) : (
-              prHighlights.map((record, index) => (
-                <li
-                  key={`${record.exerciseName}-${record.achievedAt}-${index}`}
-                  className="rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] p-3"
-                >
-                  <p className="font-semibold text-[var(--text)]">
-                    {record.exerciseName}
-                  </p>
-                  <p className="text-sm text-[var(--muted)]">
-                    {record.bestWeightKg}kg · Vol {record.bestVolume.toFixed(0)}
-                  </p>
-                  <p className="mt-1 text-xs text-[var(--muted)]">
-                    {new Date(record.achievedAt).toLocaleDateString()}
-                  </p>
+        <Card
+          title="Highlights"
+          className="flex min-h-[21rem] max-h-[70vh] flex-col p-4 sm:min-h-[23rem] sm:max-h-[32rem] sm:p-5 md:p-5"
+        >
+          <div
+            role="tablist"
+            aria-label="Dashboard highlights"
+            className="ui-panel mb-3 grid grid-cols-2 gap-1.5 p-1"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={highlightsTab === "achievements"}
+              onClick={() => setHighlightsTab("achievements")}
+              className={`relative rounded-lg border px-2.5 py-1.5 pr-9 text-left transition-all ${
+                highlightsTab === "achievements"
+                  ? "border-amber-300 bg-[linear-gradient(145deg,rgba(252,211,77,0.32),rgba(253,230,138,0.18))] text-amber-950 shadow-[0_8px_20px_rgba(245,158,11,0.18)]"
+                  : "border-transparent text-[var(--muted)] hover:border-[var(--border)]"
+              }`}
+            >
+              <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.14em]">
+                <Medal size={12} />
+                Achieve
+              </span>
+              <p className="absolute right-2.5 top-1/2 -translate-y-1/2 text-base font-bold leading-none">
+                {completedAchievements.length}
+              </p>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={highlightsTab === "pr"}
+              onClick={() => setHighlightsTab("pr")}
+              className={`relative rounded-lg border px-2.5 py-1.5 pr-9 text-left transition-all ${
+                highlightsTab === "pr"
+                  ? "border-[color-mix(in oklab,var(--accent) 36%,var(--border))] bg-[color-mix(in oklab,var(--accent) 16%,transparent)] text-[var(--text)] shadow-[0_8px_20px_rgba(16,185,129,0.14)]"
+                  : "border-transparent text-[var(--muted)] hover:border-[var(--border)]"
+              }`}
+            >
+              <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.14em]">
+                <TrendingUp
+                  size={12}
+                  className="text-[var(--chart-trend-up)]"
+                />
+                PR Highlights
+              </span>
+              <p className="absolute right-2.5 top-1/2 -translate-y-1/2 text-base font-bold leading-none">
+                {prHighlights.length}
+              </p>
+            </button>
+          </div>
+
+          {highlightsTab === "achievements" ? (
+            <ul className="ui-scroll min-h-0 flex-1 space-y-2.5 overflow-y-auto pr-0.5">
+              {completedAchievements.length === 0 ? (
+                <li className="rounded-xl border border-dashed border-amber-300/60 bg-amber-100/30 px-3 py-3 text-sm text-amber-900/80">
+                  No completed achievements yet. Keep training to unlock your
+                  first trophy.
                 </li>
-              ))
-            )}
-          </ul>
+              ) : (
+                completedAchievements.map((achievement, index) => (
+                  <li
+                    key={`${achievement.code}-${achievement.unlockedAt}-${index}`}
+                    className="relative overflow-hidden rounded-xl border border-amber-300/80 bg-[linear-gradient(150deg,rgba(253,230,138,0.34),rgba(254,243,199,0.18))] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]"
+                  >
+                    <div className="pointer-events-none absolute -right-8 -top-10 h-20 w-20 rounded-full bg-amber-300/35 blur-2xl" />
+                    <div className="relative flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-base font-semibold leading-tight text-[var(--text)]">
+                          {achievement.title}
+                        </p>
+                        <p className="mt-1 text-sm leading-snug text-[var(--text)]/78">
+                          {achievement.description}
+                        </p>
+                      </div>
+                      <span className="shrink-0 rounded-full border border-amber-400 bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900">
+                        <span className="inline-flex items-center gap-1">
+                          <Sparkles size={11} />
+                          Unlocked
+                        </span>
+                      </span>
+                    </div>
+
+                    <div className="relative mt-2.5 flex items-center justify-between gap-2 text-xs">
+                      <span className="rounded-full border border-amber-300/90 bg-amber-50 px-2 py-0.5 font-semibold text-amber-900">
+                        {categoryLabel(achievement.category)}
+                      </span>
+                      <span className="text-[var(--text)]/70">
+                        {formatMediumDate(achievement.unlockedAt)}
+                      </span>
+                    </div>
+                  </li>
+                ))
+              )}
+            </ul>
+          ) : (
+            <ul className="ui-scroll min-h-0 flex-1 space-y-2.5 overflow-y-auto pr-0.5">
+              {prHighlights.length === 0 ? (
+                <li className="rounded-xl border border-dashed border-[var(--border)] px-3 py-3 text-sm text-[var(--muted)]">
+                  No PR yet.
+                </li>
+              ) : (
+                prHighlights.map((record, index) => (
+                  <li
+                    key={`${record.exerciseName}-${record.achievedAt}-${index}`}
+                    className="ui-tile p-3"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="font-semibold text-[var(--text)]">
+                        {record.exerciseName}
+                      </p>
+                      <span className="rounded-full border border-[color-mix(in oklab,var(--accent) 38%,var(--border))] bg-[color-mix(in oklab,var(--accent) 12%,transparent)] px-2 py-0.5 text-[11px] font-semibold text-[var(--text)]">
+                        PR
+                      </span>
+                    </div>
+
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+                      <span className="rounded-full border border-[var(--border)] bg-[color-mix(in oklab,var(--surface) 92%,black)] px-2 py-0.5 text-[var(--text)]">
+                        Top {record.bestWeightKg} kg
+                      </span>
+                      <span className="rounded-full border border-[var(--border)] bg-[color-mix(in oklab,var(--surface) 92%,black)] px-2 py-0.5 text-[var(--text)]">
+                        Vol {record.bestVolume.toFixed(0)}
+                      </span>
+                    </div>
+
+                    <p className="mt-1.5 text-xs text-[var(--muted)]">
+                      Updated {formatMediumDate(record.achievedAt)}
+                    </p>
+                  </li>
+                ))
+              )}
+            </ul>
+          )}
         </Card>
       </div>
 
@@ -444,7 +605,7 @@ export function DashboardPage() {
                 />
                 <Bar
                   dataKey="totalVolume"
-                  fill="var(--accent-alt)"
+                  fill="var(--chart-primary)"
                   radius={[8, 8, 0, 0]}
                 />
               </BarChart>
@@ -457,18 +618,19 @@ export function DashboardPage() {
           subtitle="Session cadence and benchmark lift tracking"
         >
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <p className="rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm text-[var(--muted)]">
+            <p className="ui-tile px-3 py-2 text-sm text-[var(--muted)]">
               Total sessions: <CountUpValue value={totalSessions} />
             </p>
-            <p className="rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm text-[var(--muted)]">
+            <p className="ui-tile px-3 py-2 text-sm text-[var(--muted)]">
               Total volume: <CountUpValue value={totalVolume} suffix=" kg" />
             </p>
-            <p className="rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm text-[var(--muted)]">
+            <p className="ui-tile px-3 py-2 text-sm text-[var(--muted)]">
               Latest bench max:{" "}
               <CountUpValue value={latestBench} decimals={1} suffix=" kg" />
             </p>
-            <p className="rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm text-[var(--muted)]">
-              PR entries: <CountUpValue value={data.prHighlights.length} />
+            <p className="ui-tile px-3 py-2 text-sm text-[var(--muted)]">
+              Completed achievements:{" "}
+              <CountUpValue value={completedAchievements.length} />
             </p>
           </div>
         </Card>

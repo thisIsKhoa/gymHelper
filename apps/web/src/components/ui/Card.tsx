@@ -18,12 +18,12 @@ export function Card({
   return (
     <section
       className={clsx(
-        "glass-card relative overflow-hidden p-4 transition-transform duration-200 hover:-translate-y-0.5 sm:p-5 md:p-6",
+        "glass-card ui-soft-shadow relative p-4 transition-transform duration-200 motion-safe:md:hover:-translate-y-0.5 sm:p-5 md:p-6",
         className,
       )}
     >
       {(title || subtitle || action) && (
-        <header className="mb-3 flex flex-col gap-2.5 sm:mb-4 sm:flex-row sm:items-start sm:justify-between">
+        <header className="mb-3.5 flex flex-col gap-2.5 sm:mb-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             {title ? (
               <h3 className="text-base font-semibold text-[var(--text)] sm:text-lg">

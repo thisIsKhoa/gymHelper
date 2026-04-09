@@ -15,7 +15,11 @@ Base URL: `/api/v1`
   - Log exercises with sets/reps/weight/rpe/rest/completion
   - Accepts optional `timezoneOffsetMinutes` to resolve local-day boundaries correctly
   - Updates PR table automatically
-- `GET /workouts/history?from&to&limit&offset`
+  - Pushes a durable Redis/BullMQ job for gamification (muscle EXP, level checks, achievements) without delaying response
+- `GET /workouts/history?from&to&limit&cursor`
+  - Cursor pagination (`nextCursor`) for large session history scroll
+  - Returns lightweight session rows with `id`, `sessionDate`, `startedAt`, `endedAt`, `totalVolume`
+  - Includes only first 3 entry previews (`exerciseName`, `sets`, `reps`, `weightKg`) to keep payload small
 - `GET /workouts/history/:sessionId`
 - `GET /workouts/compare?currentSessionId=&previousSessionId=`
 - `GET /workouts/suggestion?exerciseName=Bench%20Press`
@@ -57,9 +61,21 @@ Base URL: `/api/v1`
   - Daily volume trend
   - Weekly pre-aggregated summary
   - PR highlights
+  - Muscle skill radar snapshot (`skill`, `level`, `totalExp`)
   - Strength increase
   - This-week metrics (sessions, strongest lift, streak)
   - Latest body metric
+
+## Gamification
+
+- `GET /gamification/profile`
+  - Muscle skill trees with level/EXP/progress
+  - Radar-ready muscle balance points
+  - Trophy room achievements with unlock state and progress bars
+- `POST /gamification/notifications/consume`
+  - Returns unread level-up + achievement notifications and marks them as read
+- `POST /gamification/activity/ping`
+  - Records daily app-open activity for hidden achievement tracking
 
 ## Cache (Admin Only)
 
@@ -74,6 +90,12 @@ Base URL: `/api/v1`
   - `timer:tick`
   - `timer:done`
   - `timer:stop`
+
+## Gamification Realtime Events
+
+- Socket events emitted to authenticated user room:
+  - `achievement:unlocked`
+  - `muscle:levelup`
 
 ## Response Design Principles
 

@@ -82,3 +82,44 @@ Highlights:
 - rest suggestion defaults by exercise type:
   - compound: ~150 seconds
   - isolation: ~90 seconds
+
+## Muscle Skill Tree Pipeline (Async)
+
+- API module: `apps/api/src/modules/gamification/gamification.service.ts`
+- Workout hook: `apps/api/src/modules/workout/workout.service.ts`
+- Queue layer: `apps/api/src/modules/gamification/gamification.queue.ts`
+- Worker runtime: `apps/api/src/modules/gamification/gamification.worker.ts`
+
+Highlights:
+
+- EXP based on volume (weight x sets x reps), with fallback for bodyweight sets
+- RPE multiplier boosts high-effort sets
+- second session of the same muscle in a week gets combo bonus
+- `POST /workouts` enqueues durable Redis job (BullMQ) and returns immediately
+- worker retries failed jobs automatically and continues after process restart
+- idempotency table (`GamificationJobRun`) prevents double-processing on retries
+
+## Running Totals (O(1) Checks)
+
+- Prisma model: `UserGamificationStat`
+- Updated in: `apps/api/src/modules/gamification/gamification.service.ts`
+
+Highlights:
+
+- lifetime volume milestone reads from precomputed total instead of SUM over all sessions
+- max session volume and max lifted weight are updated incrementally per job
+- achievement checks for long-horizon milestones become O(1)
+
+## Trophy Room + Level-Up Notifications
+
+- API endpoints: `apps/api/src/modules/gamification/*.ts`
+- UI: `apps/web/src/pages/ProfilePage.tsx`
+- Session toast integration: `apps/web/src/pages/WorkoutSessionPage.tsx`
+
+Highlights:
+
+- achievement progress is event-driven and persisted per user
+- unread notifications are consumed from API and marked read
+- unlocked achievements trigger success toasts
+- muscle level-ups trigger a Framer Motion popup in Profile
+- worker publishes Redis Pub/Sub events and API relays them to Socket.IO user rooms

@@ -5,6 +5,7 @@ import { bodyMetricsRouter } from '../modules/body-metrics/body-metrics.routes.j
 import { cacheRouter } from '../modules/cache/cache.routes.js';
 import { dashboardRouter } from '../modules/dashboard/dashboard.routes.js';
 import { exerciseLibraryRouter } from '../modules/exercise-library/exercise-library.routes.js';
+import { gamificationRouter } from '../modules/gamification/gamification.routes.js';
 import { planRouter } from '../modules/plan/plan.routes.js';
 import { progressRouter } from '../modules/progress/progress.routes.js';
 import { workoutRouter } from '../modules/workout/workout.routes.js';
@@ -19,3 +20,4 @@ apiRouter.use('/cache', cacheRouter);
 apiRouter.use('/plans', planRouter);
 apiRouter.use('/progress', progressRouter);
 apiRouter.use('/dashboard', dashboardRouter);
+apiRouter.use('/gamification', gamificationRouter);

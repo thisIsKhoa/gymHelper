@@ -2,6 +2,8 @@ import type { Prisma } from '@prisma/client';
 import { ExerciseType } from '@prisma/client';
 
 import { prisma } from '../../db/prisma.js';
+import { enqueueWorkoutGamificationJob } from '../gamification/gamification.queue.js';
+import { processWorkoutGamificationJob } from '../gamification/gamification.service.js';
 import {
   cacheNamespaces,
   invalidateCacheNamespace,
@@ -17,6 +19,7 @@ const WORKOUT_PRS_TTL_MS = 45_000;
 const WORKOUT_ANALYTICS_TTL_MS = 30_000;
 const WORKOUT_SUGGESTION_TTL_MS = 20_000;
 const WORKOUT_HISTORY_DEFAULT_LIMIT = 30;
+const WORKOUT_HISTORY_PREVIEW_ENTRIES_LIMIT = 3;
 const COMMON_PROGRESS_WEEKS: ReadonlyArray<number> = [8, 12, 16, 24];
 const COMMON_ANALYTIC_WEEKS: ReadonlyArray<number> = [8, 12, 16, 24];
 
@@ -124,6 +127,8 @@ function benchRestSecondsByReps(reps?: number | null): number {
 async function upsertPersonalRecord(
   tx: Prisma.TransactionClient,
   userId: string,
+  sessionId: string,
+  isoWeek: string,
   exerciseName: string,
   weightKg: number,
   volume: number,
@@ -139,13 +144,25 @@ async function upsertPersonalRecord(
   });
 
   if (!current) {
-    await tx.personalRecord.create({
+    const created = await tx.personalRecord.create({
       data: {
         userId,
         exerciseName,
         bestWeightKg: weightKg,
         bestVolume: volume,
         achievedAt,
+      },
+    });
+
+    await tx.personalRecordEvent.create({
+      data: {
+        userId,
+        sessionId,
+        exerciseName,
+        bestWeightKg: created.bestWeightKg,
+        bestVolume: created.bestVolume,
+        achievedAt,
+        isoWeek,
       },
     });
     return;
@@ -155,12 +172,24 @@ async function upsertPersonalRecord(
   const bestVolume = Math.max(current.bestVolume, volume);
 
   if (bestWeightKg !== current.bestWeightKg || bestVolume !== current.bestVolume) {
-    await tx.personalRecord.update({
+    const updated = await tx.personalRecord.update({
       where: { id: current.id },
       data: {
         bestWeightKg,
         bestVolume,
         achievedAt,
+      },
+    });
+
+    await tx.personalRecordEvent.create({
+      data: {
+        userId,
+        sessionId,
+        exerciseName,
+        bestWeightKg: updated.bestWeightKg,
+        bestVolume: updated.bestVolume,
+        achievedAt,
+        isoWeek,
       },
     });
   }
@@ -176,6 +205,7 @@ export async function createWorkoutSession(userId: string, input: CreateWorkoutI
   const sessionDateNext = nextUtcDate(sessionDate);
   const endedAt = input.endedAt ?? new Date();
   const normalizedNotes = input.notes?.trim() ? input.notes.trim() : undefined;
+  const sessionIsoWeek = toIsoWeek(sessionDate);
 
   const session = await prisma.$transaction(async (tx) => {
     const existingSession = await tx.workoutSession.findFirst({
@@ -260,6 +290,8 @@ export async function createWorkoutSession(userId: string, input: CreateWorkoutI
       await upsertPersonalRecord(
         tx,
         userId,
+        sessionRecord.id,
+        sessionIsoWeek,
         entry.exerciseName,
         entry.weightKg ?? 0,
         volume,
@@ -267,12 +299,11 @@ export async function createWorkoutSession(userId: string, input: CreateWorkoutI
       );
     }
 
-    const isoWeek = toIsoWeek(sessionDate);
     const existingWeekly = await tx.weeklyWorkoutStat.findUnique({
       where: {
         userId_isoWeek: {
           userId,
-          isoWeek,
+          isoWeek: sessionIsoWeek,
         },
       },
     });
@@ -290,7 +321,7 @@ export async function createWorkoutSession(userId: string, input: CreateWorkoutI
       await tx.weeklyWorkoutStat.create({
         data: {
           userId,
-          isoWeek,
+          isoWeek: sessionIsoWeek,
           totalVolume,
           sessionsCount: 1,
           strongestLiftKg,
@@ -300,7 +331,7 @@ export async function createWorkoutSession(userId: string, input: CreateWorkoutI
 
     const nextSessionTotalVolume = Number(((sessionRecord.totalVolume ?? 0) + totalVolume).toFixed(2));
 
-    return tx.workoutSession.update({
+    const updatedSession = await tx.workoutSession.update({
       where: { id: sessionRecord.id },
       data: {
         totalVolume: nextSessionTotalVolume,
@@ -315,6 +346,53 @@ export async function createWorkoutSession(userId: string, input: CreateWorkoutI
         },
       },
     });
+
+    await tx.userGamificationStat.upsert({
+      where: {
+        userId,
+      },
+      update: {
+        totalVolumeLifted: {
+          increment: totalVolume,
+        },
+      },
+      create: {
+        userId,
+        totalVolumeLifted: totalVolume,
+        maxSessionVolume: nextSessionTotalVolume,
+        maxWeightKg: strongestLiftKg,
+      },
+    });
+
+    if (nextSessionTotalVolume > 0) {
+      await tx.userGamificationStat.updateMany({
+        where: {
+          userId,
+          maxSessionVolume: {
+            lt: nextSessionTotalVolume,
+          },
+        },
+        data: {
+          maxSessionVolume: nextSessionTotalVolume,
+        },
+      });
+    }
+
+    if (strongestLiftKg > 0) {
+      await tx.userGamificationStat.updateMany({
+        where: {
+          userId,
+          maxWeightKg: {
+            lt: strongestLiftKg,
+          },
+        },
+        data: {
+          maxWeightKg: strongestLiftKg,
+        },
+      });
+    }
+
+    return updatedSession;
   });
 
   const normalizedExerciseNames = Array.from(
@@ -360,12 +438,33 @@ export async function createWorkoutSession(userId: string, input: CreateWorkoutI
   invalidateCacheNamespace(cacheNamespaces.workoutHistory);
   invalidateCacheKeys(cacheEntries);
 
+  const gamificationJobPayload = {
+    userId,
+    sessionId: session.id,
+    sessionDate,
+    entries: input.entries,
+    jobKey: `workout:${session.id}:${Date.now()}:${crypto.randomUUID()}`,
+  };
+
+  void enqueueWorkoutGamificationJob(gamificationJobPayload)
+    .then((queued) => {
+      if (queued) {
+        return;
+      }
+
+      return processWorkoutGamificationJob(gamificationJobPayload);
+    })
+    .catch((error) => {
+      // eslint-disable-next-line no-console
+      console.error('[gamification] async queue/pipeline failed', error);
+    });
+
   return session;
 }
 
 export async function getWorkoutHistory(userId: string, query: WorkoutHistoryQueryInput = {}) {
   const effectiveLimit = query.limit ?? WORKOUT_HISTORY_DEFAULT_LIMIT;
-  const effectiveOffset = query.offset ?? 0;
+  const effectiveCursor = query.cursor ?? null;
 
   const sessionDateFilter: Prisma.DateTimeFilter = {};
   if (query.from) {
@@ -382,10 +481,31 @@ export async function getWorkoutHistory(userId: string, query: WorkoutHistoryQue
       query.from?.toISOString() ?? null,
       query.to?.toISOString() ?? null,
       effectiveLimit,
-      effectiveOffset,
+      effectiveCursor,
     ]),
     WORKOUT_HISTORY_TTL_MS,
     async () => {
+      if (effectiveCursor) {
+        const cursorSession = await prisma.workoutSession.findFirst({
+          where: {
+            id: effectiveCursor,
+            userId,
+            ...(query.from || query.to
+              ? {
+                  sessionDate: sessionDateFilter,
+                }
+              : {}),
+          },
+          select: {
+            id: true,
+          },
+        });
+
+        if (!cursorSession) {
+          throw new HttpError(400, 'Invalid workout history cursor');
+        }
+      }
+
       const rows = await prisma.workoutSession.findMany({
         where: {
           userId,
@@ -400,7 +520,6 @@ export async function getWorkoutHistory(userId: string, query: WorkoutHistoryQue
           sessionDate: true,
           startedAt: true,
           endedAt: true,
-          notes: true,
           totalVolume: true,
           entries: {
             select: {
@@ -408,33 +527,38 @@ export async function getWorkoutHistory(userId: string, query: WorkoutHistoryQue
               sets: true,
               reps: true,
               weightKg: true,
-              rpe: true,
-              isCompleted: true,
-              durationSec: true,
-              restSeconds: true,
-              volume: true,
-              estimated1Rm: true,
             },
             orderBy: {
               createdAt: 'asc',
             },
+            take: WORKOUT_HISTORY_PREVIEW_ENTRIES_LIMIT,
           },
         },
-        orderBy: [{ sessionDate: 'desc' }, { createdAt: 'desc' }],
-        skip: effectiveOffset,
+        orderBy: [{ sessionDate: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+        ...(effectiveCursor
+          ? {
+              cursor: {
+                id: effectiveCursor,
+              },
+              skip: 1,
+            }
+          : {}),
         take: effectiveLimit + 1,
       });
 
       const hasMore = rows.length > effectiveLimit;
       const items = hasMore ? rows.slice(0, effectiveLimit) : rows;
+      const nextCursor = hasMore
+        ? (items.at(-1)?.id ?? null)
+        : null;
 
       return {
         items,
         pagination: {
           limit: effectiveLimit,
-          offset: effectiveOffset,
+          cursor: effectiveCursor,
           hasMore,
-          nextOffset: hasMore ? effectiveOffset + effectiveLimit : null,
+          nextCursor,
         },
       };
     },

@@ -109,7 +109,7 @@ export function ProgressPage() {
   }
 
   if (error) {
-    return <p className="text-sm text-red-400">{error}</p>;
+    return <p className="ui-status ui-status-danger">{error}</p>;
   }
 
   const hasExerciseData = points.length > 0;
@@ -120,13 +120,11 @@ export function ProgressPage() {
       <Card title="Progress Controls" subtitle="Select exercise and timeline">
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block">
-            <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
-              Exercise
-            </span>
+            <span className="ui-label">Exercise</span>
             <select
               value={selectedExercise}
               onChange={(event) => setSelectedExercise(event.target.value)}
-              className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+              className="ui-select"
             >
               {library.map((exercise) => (
                 <option key={exercise.id} value={exercise.name}>
@@ -137,13 +135,11 @@ export function ProgressPage() {
           </label>
 
           <label className="block">
-            <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
-              Weeks
-            </span>
+            <span className="ui-label">Weeks</span>
             <select
               value={weeks}
               onChange={(event) => setWeeks(Number(event.target.value))}
-              className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+              className="ui-select"
             >
               <option value={8}>8 weeks</option>
               <option value={12}>12 weeks</option>
@@ -191,7 +187,7 @@ export function ProgressPage() {
             </LineChart>
           </ChartContainer>
         ) : (
-          <p className="rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-6 text-sm text-[var(--muted)]">
+          <p className="ui-empty-state text-sm">
             No data found for this exercise yet. Log more workouts to see the
             chart.
           </p>
@@ -227,7 +223,7 @@ export function ProgressPage() {
               </BarChart>
             </ChartContainer>
           ) : (
-            <p className="rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-6 text-sm text-[var(--muted)]">
+            <p className="ui-empty-state text-sm">
               No volume data available for this exercise yet.
             </p>
           )}
@@ -261,19 +257,19 @@ export function ProgressPage() {
               </BarChart>
             </ChartContainer>
           ) : (
-            <p className="rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-6 text-sm text-[var(--muted)]">
+            <p className="ui-empty-state text-sm">
               No training frequency data available yet.
             </p>
           )}
           {analytics ? (
             <div className="mt-3 grid grid-cols-1 gap-2 text-xs sm:grid-cols-3">
-              <p className="rounded-lg border border-[var(--border)] px-2 py-1 text-[var(--muted)]">
+              <p className="ui-tile px-2 py-1 text-[var(--muted)]">
                 This week sessions: {analytics.thisWeek.sessionsCount}
               </p>
-              <p className="rounded-lg border border-[var(--border)] px-2 py-1 text-[var(--muted)]">
+              <p className="ui-tile px-2 py-1 text-[var(--muted)]">
                 Strongest lift: {analytics.thisWeek.strongestLiftKg}kg
               </p>
-              <p className="rounded-lg border border-[var(--border)] px-2 py-1 text-[var(--muted)]">
+              <p className="ui-tile px-2 py-1 text-[var(--muted)]">
                 Streak: {analytics.streakDays} days
               </p>
             </div>
@@ -284,15 +280,10 @@ export function ProgressPage() {
       <Card title="Personal Records" subtitle="Best lift per exercise">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {records.length === 0 ? (
-            <p className="text-sm text-[var(--muted)]">
-              No PR data available yet.
-            </p>
+            <p className="ui-empty-state text-sm">No PR data available yet.</p>
           ) : (
             records.map((pr) => (
-              <article
-                key={pr.exerciseName}
-                className="rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] p-3"
-              >
+              <article key={pr.exerciseName} className="ui-tile p-3">
                 <p className="font-semibold">{pr.exerciseName}</p>
                 <p className="text-sm text-[var(--muted)]">
                   {pr.bestWeightKg}kg · Vol {pr.bestVolume.toFixed(0)}

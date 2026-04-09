@@ -10,6 +10,7 @@
         "dev": "concurrently \"npm:dev:api\" \"npm:dev:web\"",
         "dev:api": "npm run dev --workspace @gymhelper/api",
         "dev:web": "npm run dev --workspace apps/web",
+        "dev:worker": "npm run dev:worker --workspace @gymhelper/api",
         "build": "npm run build --workspaces",
         "lint": "npm run lint --workspaces",
         "format": "prettier --write .",

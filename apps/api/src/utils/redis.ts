@@ -2,7 +2,7 @@ import { createClient } from 'redis';
 
 import { env } from '../config/env.js';
 
-type AppRedisClient = ReturnType<typeof createClient>;
+export type AppRedisClient = ReturnType<typeof createClient>;
 
 let redisClient: AppRedisClient | null = null;
 let connectInFlight: Promise<AppRedisClient | null> | null = null;
@@ -50,6 +50,37 @@ export async function getRedisClient(): Promise<AppRedisClient | null> {
     });
 
   return connectInFlight;
+}
+
+export async function createRedisIsolatedClient(): Promise<AppRedisClient | null> {
+  if (!env.REDIS_URL) {
+    return null;
+  }
+
+  const client = createClient({
+    url: env.REDIS_URL,
+  });
+
+  client.on('error', (error) => {
+    // eslint-disable-next-line no-console
+    console.error('[redis] isolated client error', error);
+  });
+
+  try {
+    await client.connect();
+    return client;
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error('[redis] isolated client connect failed', error);
+
+    try {
+      await client.disconnect();
+    } catch {
+      // ignore disconnect errors in failed connect flow
+    }
+
+    return null;
+  }
 }
 
 export async function getRedisValue(key: string): Promise<string | null> {

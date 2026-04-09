@@ -1,4 +1,5 @@
 import { prisma } from '../../db/prisma.js';
+import { ACHIEVEMENT_DEFINITIONS } from '../gamification/gamification.constants.js';
 import { cacheNamespaces, readThroughCache, serializeCacheKey } from '../../utils/cache.js';
 
 const DASHBOARD_OVERVIEW_TTL_MS = 180_000;
@@ -44,8 +45,12 @@ export async function getDashboardOverview(userId: string) {
     serializeCacheKey([userId]),
     DASHBOARD_OVERVIEW_TTL_MS,
     async () => {
-      const [volumeRows, streakSessions, prs, latestBodyMetric, weeklyStatsDesc, strengthRows, benchRows] =
-        await prisma.$transaction([
+      const achievementByCode = new Map(
+        ACHIEVEMENT_DEFINITIONS.map((achievement) => [achievement.code, achievement]),
+      );
+
+      const [volumeRows, streakSessions, prs, latestBodyMetric, weeklyStatsDesc, strengthRows, benchRows, unlockedAchievements, muscleSkillRadar] =
+        await Promise.all([
           prisma.$queryRaw<
             Array<{
               session_date: Date;
@@ -72,8 +77,10 @@ export async function getDashboardOverview(userId: string) {
           }),
           prisma.personalRecord.findMany({
             where: { userId },
-            orderBy: [{ bestWeightKg: 'desc' }, { bestVolume: 'desc' }],
-            take: 6,
+            orderBy: {
+              updatedAt: 'desc',
+            },
+            take: 5,
           }),
           prisma.bodyMetric.findFirst({
             where: { userId },
@@ -153,6 +160,30 @@ export async function getDashboardOverview(userId: string) {
             GROUP BY week_start
             ORDER BY week_start ASC
           `,
+          prisma.userAchievement.findMany({
+            where: {
+              userId,
+              isUnlocked: true,
+            },
+            select: {
+              code: true,
+              unlockedAt: true,
+              updatedAt: true,
+            },
+            orderBy: [{ unlockedAt: 'desc' }, { updatedAt: 'desc' }],
+            take: 8,
+          }),
+          prisma.muscleSkillProgress.findMany({
+            where: { userId },
+            select: {
+              skill: true,
+              level: true,
+              totalExp: true,
+            },
+            orderBy: {
+              skill: 'asc',
+            },
+          }),
         ]);
       const weeklyStats = [...weeklyStatsDesc].reverse();
 
@@ -177,6 +208,19 @@ export async function getDashboardOverview(userId: string) {
         volume: Number((row.total_volume ?? 0).toFixed(2)),
       }));
 
+      const completedAchievements = unlockedAchievements.map((achievement) => {
+        const definition = achievementByCode.get(achievement.code);
+
+        return {
+          code: achievement.code,
+          title: definition?.title ?? String(achievement.code),
+          description: definition?.description ?? 'Achievement unlocked.',
+          iconKey: definition?.iconKey ?? 'achievement',
+          category: definition?.category ?? 'hidden',
+          unlockedAt: achievement.unlockedAt ?? achievement.updatedAt,
+        };
+      });
+
       return {
         volumeTrend,
         workoutFrequency: weeklyStats.map((week) => ({ week: week.isoWeek, sessionsCount: week.sessionsCount })),
@@ -192,6 +236,12 @@ export async function getDashboardOverview(userId: string) {
         })),
         strengthIncrease,
         prHighlights: prs,
+        muscleSkillRadar: muscleSkillRadar.map((item) => ({
+          skill: item.skill,
+          level: item.level,
+          totalExp: Number(item.totalExp.toFixed(2)),
+        })),
+        completedAchievements,
         latestBodyMetric,
         thisWeek: {
           week: currentWeek,

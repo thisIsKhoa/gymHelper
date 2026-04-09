@@ -10,15 +10,17 @@ Personal Workout Tracker is designed for individual athletes to log sessions qui
 - Backend: Node.js + Express + Prisma
 - Database: PostgreSQL
 - Auth: JWT
-- Realtime utility: Socket.IO for optional shared timer ticks
+- Queue: BullMQ + Redis for durable background jobs
+- Realtime utility: Socket.IO for timer ticks + achievement/level-up events
 
 ## High-Level Flow
 
 1. User logs sets from the mobile-first workout screen.
 2. API persists session and entries in one transaction.
-3. Service computes volume + estimated 1RM and updates PR tables.
-4. Weekly pre-aggregated stats are updated for fast dashboard rendering.
-5. Progress and dashboard APIs return chart-ready data (minimal frontend transform).
+3. API enqueues a gamification job into Redis and returns response immediately.
+4. Worker processes EXP/level/achievement logic with retry and idempotency guard.
+5. Worker publishes realtime events through Redis Pub/Sub; API emits Socket.IO to user room.
+6. Progress and dashboard APIs return chart-ready data (minimal frontend transform).
 
 ## Backend Modules
 
@@ -29,6 +31,7 @@ Personal Workout Tracker is designed for individual athletes to log sessions qui
 - plan: create/edit/clone plans with day-level exercises
 - dashboard: weekly overview, streak, strongest lift, PR highlights
 - exercise-library: predefined + custom exercises with muscle-group and type metadata
+- gamification: skill trees, achievements, queue producer/worker, realtime event publishing
 
 ## Frontend Modules
 
@@ -42,6 +45,8 @@ Personal Workout Tracker is designed for individual athletes to log sessions qui
 ## Performance/Scalability Notes
 
 - Weekly pre-aggregation (`WeeklyWorkoutStat`) reduces chart query cost.
+- Running totals (`UserGamificationStat`) keep lifetime checks O(1) instead of SUM-over-history.
+- BullMQ retries failed jobs and preserves work in Redis across server restarts.
 - Time-series queries are indexed by user + date/week dimensions.
 - Response payloads are chart-friendly to avoid expensive client reshaping.
 - Offline queue enables uninterrupted logging when network is unstable.

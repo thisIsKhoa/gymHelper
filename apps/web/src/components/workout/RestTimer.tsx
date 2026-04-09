@@ -201,11 +201,9 @@ export const RestTimer = memo(function RestTimer({
   }, [autoStartKey]);
 
   return (
-    <div className="space-y-4 rounded-2xl border border-[var(--border)] bg-[var(--surface-solid)] p-4">
+    <div className="ui-panel space-y-4 rounded-2xl">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
-          Rest Countdown
-        </p>
+        <p className="ui-kicker">Rest Countdown</p>
         <div className="flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-2 text-xs text-[var(--muted)]">
             <input
@@ -230,33 +228,33 @@ export const RestTimer = memo(function RestTimer({
         <p
           role="status"
           aria-live="polite"
-          className="rounded-lg border border-emerald-500/50 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200"
+          className="ui-status ui-status-success"
         >
           {webAlertMessage}
         </p>
       ) : null}
 
-      <div className="rounded-xl bg-[var(--surface)] p-3">
+      <div className="ui-tile rounded-xl p-3">
         <div className="mb-2 flex items-center justify-between text-xs text-[var(--muted)]">
           <span>Remaining</span>
           <span>{Math.round(progress)}%</span>
         </div>
         <div className="h-2 overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
           <div
-            className="h-full rounded-full bg-[var(--accent-alt)] transition-[width] duration-300 ease-linear will-change-[width]"
+            className="h-full rounded-full bg-[linear-gradient(90deg,var(--accent-alt),var(--accent))] transition-[width] duration-300 ease-linear will-change-[width]"
             style={{ width: `${progress}%` }}
           />
         </div>
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="font-mono text-3xl font-semibold text-[var(--text)]">
+        <p className="ui-number font-mono text-3xl font-semibold text-[var(--text)]">
           {formatSeconds(remaining)}
         </p>
         <div className="flex items-center gap-2">
           <button
             type="button"
-            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-[var(--border)] p-2 text-[var(--text)]"
+            className="ui-btn ui-btn-secondary inline-flex min-h-11 min-w-11 items-center justify-center p-2"
             onClick={isRunning ? handlePause : handleStart}
             aria-label={isRunning ? "Pause timer" : "Start timer"}
           >
@@ -264,7 +262,7 @@ export const RestTimer = memo(function RestTimer({
           </button>
           <button
             type="button"
-            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-[var(--border)] p-2 text-[var(--text)]"
+            className="ui-btn ui-btn-secondary inline-flex min-h-11 min-w-11 items-center justify-center p-2"
             onClick={handleReset}
             aria-label="Reset timer"
           >
@@ -288,7 +286,7 @@ export const RestTimer = memo(function RestTimer({
               setRemaining(next);
             }
           }}
-          className="ml-0 min-h-11 w-full rounded-lg border border-[var(--border)] bg-transparent px-2 py-1 text-right sm:ml-auto sm:w-24"
+          className="ui-input ml-0 min-h-11 w-full px-2 py-1 text-right sm:ml-auto sm:w-24"
         />
       </label>
     </div>

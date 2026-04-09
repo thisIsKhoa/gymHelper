@@ -25,13 +25,14 @@ export function LoadingState({
         {Array.from({ length: Math.max(1, cardCount) }).map((_, index) => (
           <div
             key={index}
-            className="glass-card space-y-3 overflow-hidden p-4"
+            className="glass-card ui-soft-shadow space-y-3 overflow-hidden p-4"
             aria-hidden="true"
           >
-            <div className="h-3 w-24 animate-pulse rounded-full bg-[var(--border)]" />
-            <div className="h-8 w-2/3 animate-pulse rounded-lg bg-[var(--border)]" />
-            <div className="h-3 w-full animate-pulse rounded-full bg-[var(--border)]" />
-            <div className="h-3 w-4/5 animate-pulse rounded-full bg-[var(--border)]" />
+            <div className="h-2.5 w-20 animate-pulse rounded-full bg-[var(--border)]" />
+            <div className="h-7 w-2/3 animate-pulse rounded-lg bg-[color-mix(in_oklab,var(--border)_78%,transparent)]" />
+            <div className="h-2.5 w-full animate-pulse rounded-full bg-[var(--border)]" />
+            <div className="h-2.5 w-4/5 animate-pulse rounded-full bg-[var(--border)]" />
+            <div className="h-2.5 w-2/5 animate-pulse rounded-full bg-[var(--border)]" />
           </div>
         ))}
       </div>

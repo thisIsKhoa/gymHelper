@@ -29,6 +29,11 @@ const ProgressPage = lazy(async () => {
   return { default: module.ProgressPage };
 });
 
+const ProfilePage = lazy(async () => {
+  const module = await import("../pages/ProfilePage.tsx");
+  return { default: module.ProfilePage };
+});
+
 const BodyMetricsPage = lazy(async () => {
   const module = await import("../pages/BodyMetricsPage.tsx");
   return { default: module.BodyMetricsPage };
@@ -69,6 +74,7 @@ export const router = createBrowserRouter([
       { path: "/session", element: withSuspense(<WorkoutSessionPage />) },
       { path: "/plan", element: withSuspense(<TrainingPlanPage />) },
       { path: "/progress", element: withSuspense(<ProgressPage />) },
+      { path: "/profile", element: withSuspense(<ProfilePage />) },
       { path: "/metrics", element: withSuspense(<BodyMetricsPage />) },
       { path: "/library", element: withSuspense(<ExerciseLibraryPage />) },
     ],

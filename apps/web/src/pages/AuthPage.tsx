@@ -65,10 +65,8 @@ export function AuthPage() {
 
   return (
     <main className="app-shell flex min-h-screen items-center justify-center px-4 py-6 sm:py-8">
-      <section className="glass-card w-full max-w-md p-5 sm:p-6 md:p-8">
-        <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
-          Personal Workout Tracker
-        </p>
+      <section className="glass-card ui-soft-shadow w-full max-w-md p-5 sm:p-6 md:p-8">
+        <p className="ui-kicker">Personal Workout Tracker</p>
         <h1 className="mt-2 text-2xl font-bold text-[var(--text)] sm:text-3xl">
           {isLogin ? "Welcome back" : "Create account"}
         </h1>
@@ -85,7 +83,7 @@ export function AuthPage() {
           <span className="ui-chip">Fast sync across devices</span>
         </div>
 
-        <div className="mt-5 grid grid-cols-2 gap-1 rounded-xl border border-[var(--border)] bg-[color:var(--surface-solid)] p-1">
+        <div className="ui-panel mt-5 grid grid-cols-2 gap-1 p-1">
           <button
             type="button"
             onClick={() => {

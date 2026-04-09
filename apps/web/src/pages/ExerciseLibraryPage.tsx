@@ -98,24 +98,20 @@ export function ExerciseLibraryPage() {
       >
         <form className="space-y-3" onSubmit={submit}>
           <label className="block">
-            <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
-              Exercise Name
-            </span>
+            <span className="ui-label">Exercise Name</span>
             <input
               value={form.name}
               onChange={(event) =>
                 setForm((current) => ({ ...current, name: event.target.value }))
               }
               required
-              className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+              className="ui-input"
               placeholder="e.g. Deficit Deadlift"
             />
           </label>
 
           <label className="block">
-            <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
-              Muscle Group
-            </span>
+            <span className="ui-label">Muscle Group</span>
             <select
               value={form.muscleGroup}
               onChange={(event) =>
@@ -125,7 +121,7 @@ export function ExerciseLibraryPage() {
                     .value as CustomExerciseForm["muscleGroup"],
                 }))
               }
-              className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+              className="ui-select"
             >
               {muscleGroupOptions.map((option) => (
                 <option key={option} value={option}>
@@ -136,9 +132,7 @@ export function ExerciseLibraryPage() {
           </label>
 
           <label className="block">
-            <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
-              Exercise Type
-            </span>
+            <span className="ui-label">Exercise Type</span>
             <select
               value={form.exerciseType}
               onChange={(event) =>
@@ -150,7 +144,7 @@ export function ExerciseLibraryPage() {
                     event.target.value === "COMPOUND" ? 150 : 90,
                 }))
               }
-              className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+              className="ui-select"
             >
               {exerciseTypeOptions.map((option) => (
                 <option key={option} value={option}>
@@ -161,9 +155,7 @@ export function ExerciseLibraryPage() {
           </label>
 
           <label className="block">
-            <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
-              Default Rest (seconds)
-            </span>
+            <span className="ui-label">Default Rest (seconds)</span>
             <input
               type="number"
               min={45}
@@ -175,21 +167,19 @@ export function ExerciseLibraryPage() {
                   defaultRestSeconds: Number(event.target.value),
                 }))
               }
-              className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+              className="ui-input"
             />
           </label>
 
           <button
             type="submit"
-            className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white sm:w-auto"
+            className="ui-btn ui-btn-primary inline-flex w-full items-center justify-center gap-2 sm:w-auto"
           >
             <Plus size={16} /> Add Exercise
           </button>
         </form>
 
-        {status ? (
-          <p className="mt-3 text-sm text-[var(--muted)]">{status}</p>
-        ) : null}
+        {status ? <p className="ui-status mt-3">{status}</p> : null}
       </Card>
 
       <div className="space-y-4">
@@ -217,10 +207,7 @@ export function ExerciseLibraryPage() {
         >
           <div className="mb-4 flex flex-wrap gap-2 text-xs">
             {groupedCount.map(([group, count]) => (
-              <span
-                key={group}
-                className="rounded-full border border-[var(--border)] px-3 py-1 text-[var(--muted)]"
-              >
+              <span key={group} className="ui-chip">
                 {group.replaceAll("_", " ")} · {count}
               </span>
             ))}
@@ -228,10 +215,7 @@ export function ExerciseLibraryPage() {
 
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {items.map((item) => (
-              <article
-                key={item.id}
-                className="rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] p-3"
-              >
+              <article key={item.id} className="ui-tile p-3">
                 <p className="text-sm font-semibold">{item.name}</p>
                 <p className="mt-1 text-xs text-[var(--muted)]">
                   {item.muscleGroup.replaceAll("_", " ")} · {item.exerciseType}
@@ -245,7 +229,7 @@ export function ExerciseLibraryPage() {
               </article>
             ))}
             {items.length === 0 ? (
-              <p className="text-sm text-[var(--muted)]">No exercises found.</p>
+              <p className="ui-empty-state text-sm">No exercises found.</p>
             ) : null}
           </div>
         </Card>

@@ -68,9 +68,9 @@ interface PaginatedResponse<T> {
   items: T[];
   pagination: {
     limit: number;
-    offset: number;
+    cursor: string | null;
     hasMore: boolean;
-    nextOffset: number | null;
+    nextCursor: string | null;
   };
 }
 
@@ -188,10 +188,8 @@ const PlannedQueueRow = memo(function PlannedQueueRow({
 }: PlannedQueueRowProps) {
   return (
     <div
-      className={`flex flex-col gap-2 rounded-lg border px-2 py-1.5 sm:flex-row sm:items-center sm:justify-between ${
-        isActive
-          ? "border-[var(--accent)] bg-[color-mix(in oklab,var(--accent) 12%,transparent)]"
-          : "border-[var(--border)]"
+      className={`ui-tile flex flex-col gap-2 px-2 py-1.5 sm:flex-row sm:items-center sm:justify-between ${
+        isActive ? "border-[var(--accent)] bg-[var(--surface-elevated)]" : ""
       }`}
     >
       <div className="min-w-0">
@@ -205,7 +203,7 @@ const PlannedQueueRow = memo(function PlannedQueueRow({
 
       <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-nowrap sm:items-center">
         {item.completed ? (
-          <span className="col-span-2 inline-flex items-center gap-1 text-xs text-emerald-400 sm:col-span-1">
+          <span className="col-span-2 inline-flex items-center gap-1 text-xs text-[var(--success)] sm:col-span-1">
             <CheckCircle2 size={14} /> Done
           </span>
         ) : isActive ? (
@@ -217,7 +215,7 @@ const PlannedQueueRow = memo(function PlannedQueueRow({
         <button
           type="button"
           onClick={() => onUse(item)}
-          className="min-h-10 w-full cursor-pointer rounded-md border border-[var(--border)] px-3 py-1.5 text-xs sm:min-h-0 sm:w-auto"
+          className="ui-btn ui-btn-secondary min-h-10 w-full px-3 py-1.5 text-xs sm:min-h-0 sm:w-auto"
         >
           {isActive ? "Using" : "Use"}
         </button>
@@ -226,7 +224,7 @@ const PlannedQueueRow = memo(function PlannedQueueRow({
           type="button"
           onClick={() => onLog(item)}
           disabled={item.completed}
-          className="min-h-10 w-full cursor-pointer rounded-md border border-[var(--border)] px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0 sm:w-auto"
+          className="ui-btn ui-btn-secondary min-h-10 w-full px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0 sm:w-auto"
         >
           Log
         </button>
@@ -243,7 +241,7 @@ const SessionEntryRow = memo(function SessionEntryRow({
   entry,
 }: SessionEntryRowProps) {
   return (
-    <div className="rounded-lg border border-[var(--border)] p-3 text-sm">
+    <div className="ui-tile p-3 text-sm">
       <p className="font-semibold">{entry.exerciseName}</p>
       <p className="text-[var(--muted)]">
         {entry.sets} x {entry.reps}
@@ -279,7 +277,7 @@ export function WorkoutSessionPage() {
     string | null
   >(null);
   const [history, setHistory] = useState<SessionHistoryItem[]>([]);
-  const [historyOffset, setHistoryOffset] = useState(0);
+  const [historyCursor, setHistoryCursor] = useState<string | null>(null);
   const [historyHasMore, setHistoryHasMore] = useState(false);
   const [isLoadingMoreHistory, setIsLoadingMoreHistory] = useState(false);
   const [comparison, setComparison] = useState<SessionComparison | null>(null);
@@ -461,21 +459,31 @@ export function WorkoutSessionPage() {
   const loadHistory = async () => {
     try {
       const result = await apiRequest<PaginatedResponse<SessionHistoryItem>>(
-        `/workouts/history?limit=${HISTORY_PAGE_SIZE}&offset=0`,
+        `/workouts/history?limit=${HISTORY_PAGE_SIZE}`,
         "GET",
       );
       setHistory(result.items);
       setHistoryHasMore(result.pagination.hasMore);
-      setHistoryOffset(result.pagination.nextOffset ?? result.items.length);
+      setHistoryCursor(result.pagination.nextCursor);
 
       const todaySession = result.items.find(
         (session) => session.sessionDate.slice(0, 10) === localDateKey(),
       );
 
       if (todaySession) {
-        setEntries(
-          [...todaySession.entries].map(mapHistoryEntryToInput).reverse(),
-        );
+        try {
+          const fullSession = await apiRequest<SessionHistoryItem>(
+            `/workouts/history/${encodeURIComponent(todaySession.id)}`,
+            "GET",
+          );
+          setEntries(
+            [...fullSession.entries].map(mapHistoryEntryToInput).reverse(),
+          );
+        } catch {
+          setEntries(
+            [...todaySession.entries].map(mapHistoryEntryToInput).reverse(),
+          );
+        }
       } else {
         setEntries([]);
       }
@@ -490,27 +498,26 @@ export function WorkoutSessionPage() {
     } catch {
       setHistory([]);
       setHistoryHasMore(false);
-      setHistoryOffset(0);
+      setHistoryCursor(null);
     }
   };
 
   const loadMoreHistory = async () => {
-    if (!historyHasMore || isLoadingMoreHistory) {
+    if (!historyHasMore || isLoadingMoreHistory || !historyCursor) {
       return;
     }
 
     setIsLoadingMoreHistory(true);
     try {
+      const cursorParam = encodeURIComponent(historyCursor);
       const result = await apiRequest<PaginatedResponse<SessionHistoryItem>>(
-        `/workouts/history?limit=${HISTORY_PAGE_SIZE}&offset=${historyOffset}`,
+        `/workouts/history?limit=${HISTORY_PAGE_SIZE}&cursor=${cursorParam}`,
         "GET",
       );
 
       setHistory((current) => [...current, ...result.items]);
       setHistoryHasMore(result.pagination.hasMore);
-      setHistoryOffset(
-        result.pagination.nextOffset ?? historyOffset + result.items.length,
-      );
+      setHistoryCursor(result.pagination.nextCursor);
     } finally {
       setIsLoadingMoreHistory(false);
     }
@@ -776,7 +783,7 @@ export function WorkoutSessionPage() {
             className="perf-contain"
           >
             {sessionPlan ? (
-              <div className="mb-4 rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] p-3">
+              <div className="ui-panel mb-4 p-3">
                 <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <p className="flex items-start gap-2 text-sm font-semibold">
@@ -794,14 +801,14 @@ export function WorkoutSessionPage() {
                   <button
                     type="button"
                     onClick={() => void loadSessionPlan()}
-                    className="inline-flex min-h-10 shrink-0 items-center rounded-lg border border-[var(--border)] px-3 py-1 text-xs"
+                    className="ui-btn ui-btn-secondary inline-flex min-h-10 shrink-0 items-center px-3 py-1 text-xs"
                   >
                     Reload plan
                   </button>
                 </div>
 
                 <div
-                  className="max-h-64 space-y-2 overflow-y-auto pr-1"
+                  className="ui-scroll max-h-64 space-y-2 overflow-y-auto pr-1"
                   style={PLANNED_QUEUE_LIST_STYLE}
                 >
                   {plannedQueue.map((item) => {
@@ -820,7 +827,7 @@ export function WorkoutSessionPage() {
                 </div>
               </div>
             ) : (
-              <p className="mb-4 rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm text-[var(--muted)]">
+              <p className="ui-empty-state mb-4 text-sm">
                 No plan found for today. You can still log your workout
                 manually.
               </p>
@@ -828,13 +835,11 @@ export function WorkoutSessionPage() {
 
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="sm:col-span-2">
-                <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
-                  Exercise
-                </span>
+                <span className="ui-label">Exercise</span>
                 <select
                   value={selectedExercise}
                   onChange={(event) => setSelectedExercise(event.target.value)}
-                  className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+                  className="ui-select"
                 >
                   {library.map((exercise) => (
                     <option key={exercise.id} value={exercise.name}>
@@ -850,51 +855,43 @@ export function WorkoutSessionPage() {
               </label>
 
               <label>
-                <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
-                  Sets
-                </span>
+                <span className="ui-label">Sets</span>
                 <input
                   type="number"
                   min={1}
                   max={10}
                   value={sets}
                   onChange={(event) => setSets(Number(event.target.value))}
-                  className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+                  className="ui-input"
                 />
               </label>
 
               <label>
-                <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
-                  Reps
-                </span>
+                <span className="ui-label">Reps</span>
                 <input
                   type="number"
                   min={1}
                   max={30}
                   value={reps}
                   onChange={(event) => setReps(Number(event.target.value))}
-                  className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+                  className="ui-input"
                 />
               </label>
 
               <label>
-                <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
-                  Weight (kg)
-                </span>
+                <span className="ui-label">Weight (kg)</span>
                 <input
                   type="number"
                   min={0}
                   max={500}
                   value={weightKg}
                   onChange={(event) => setWeightKg(Number(event.target.value))}
-                  className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+                  className="ui-input"
                 />
               </label>
 
               <label>
-                <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
-                  RPE (optional)
-                </span>
+                <span className="ui-label">RPE (optional)</span>
                 <input
                   type="number"
                   min={1}
@@ -905,14 +902,12 @@ export function WorkoutSessionPage() {
                     const next = event.target.value;
                     setRpe(next ? Number(next) : "");
                   }}
-                  className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+                  className="ui-input"
                 />
               </label>
 
               <label>
-                <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
-                  Rest (sec)
-                </span>
+                <span className="ui-label">Rest (sec)</span>
                 <input
                   type="number"
                   min={45}
@@ -921,11 +916,11 @@ export function WorkoutSessionPage() {
                   onChange={(event) =>
                     setRestSeconds(Number(event.target.value))
                   }
-                  className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+                  className="ui-input"
                 />
               </label>
 
-              <label className="flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm sm:col-span-2">
+              <label className="ui-tile flex items-center gap-2 px-3 py-2 text-sm sm:col-span-2">
                 <input
                   type="checkbox"
                   checked={isCompleted}
@@ -936,7 +931,7 @@ export function WorkoutSessionPage() {
             </div>
 
             {suggestion ? (
-              <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] p-3 text-sm">
+              <div className="ui-panel mt-4 text-sm">
                 <div className="flex items-center gap-2 text-[var(--accent)]">
                   <Zap size={16} />
                   Smart suggestion
@@ -963,14 +958,14 @@ export function WorkoutSessionPage() {
               <button
                 type="button"
                 onClick={logEntry}
-                className="min-h-11 w-full rounded-xl bg-[var(--accent)] px-5 py-2 text-sm font-semibold text-white transition-colors"
+                className="ui-btn ui-btn-primary w-full px-5 py-2 text-sm"
               >
                 Log Set (L)
               </button>
               <button
                 type="button"
                 onClick={() => void syncQueuedWorkouts()}
-                className="min-h-11 w-full rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-semibold"
+                className="ui-btn ui-btn-secondary w-full px-4 py-2 text-sm"
               >
                 <WifiOff size={16} className="mr-1 inline-block" /> Sync Offline
                 ({queue.length})
@@ -978,14 +973,14 @@ export function WorkoutSessionPage() {
               <button
                 type="button"
                 onClick={() => void exportCsv()}
-                className="min-h-11 w-full rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-semibold"
+                className="ui-btn ui-btn-secondary w-full px-4 py-2 text-sm"
               >
                 <ArrowDownToLine size={16} className="mr-1 inline-block" />{" "}
                 Export CSV
               </button>
             </div>
 
-            <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] p-4">
+            <div className="ui-panel mt-4 p-4">
               <div className="mb-3 flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-sm font-semibold">Current Session Entries</p>
                 <p className="text-xs text-[var(--muted)]">
@@ -994,11 +989,11 @@ export function WorkoutSessionPage() {
                 </p>
               </div>
               <div
-                className="max-h-72 space-y-2 overflow-y-auto pr-1"
+                className="ui-scroll max-h-72 space-y-2 overflow-y-auto pr-1"
                 style={SESSION_ENTRIES_LIST_STYLE}
               >
                 {entries.length === 0 ? (
-                  <p className="text-sm text-[var(--muted)]">
+                  <p className="ui-empty-state text-sm">
                     No exercises logged yet.
                   </p>
                 ) : (
@@ -1010,21 +1005,17 @@ export function WorkoutSessionPage() {
             </div>
 
             <label className="mt-4 block">
-              <span className="mb-1 block text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
-                Session notes
-              </span>
+              <span className="ui-label">Session notes</span>
               <textarea
                 rows={3}
                 value={notes}
                 onChange={(event) => setNotes(event.target.value)}
-                className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+                className="ui-textarea"
                 placeholder="Energy level, cues, or next-session notes..."
               />
             </label>
 
-            {status ? (
-              <p className="mt-3 text-sm text-[var(--muted)]">{status}</p>
-            ) : null}
+            {status ? <p className="ui-status mt-3">{status}</p> : null}
           </Card>
         </div>
       </div>
@@ -1051,21 +1042,17 @@ export function WorkoutSessionPage() {
         >
           <div className="space-y-2">
             {history.length === 0 ? (
-              <p className="text-sm text-[var(--muted)]">
-                No session history yet.
-              </p>
+              <p className="ui-empty-state text-sm">No session history yet.</p>
             ) : (
               <>
                 <label className="block">
-                  <span className="mb-1 block text-xs uppercase tracking-[0.16em] text-[var(--muted)]">
-                    Session
-                  </span>
+                  <span className="ui-label">Session</span>
                   <select
                     value={selectedHistoryId ?? ""}
                     onChange={(event) =>
                       void loadComparison(event.target.value)
                     }
-                    className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm"
+                    className="ui-select"
                   >
                     {history.map((item) => (
                       <option key={item.id} value={item.id}>
@@ -1080,7 +1067,7 @@ export function WorkoutSessionPage() {
                   type="button"
                   onClick={() => void loadMoreHistory()}
                   disabled={!historyHasMore || isLoadingMoreHistory}
-                  className="w-full rounded-xl border border-[var(--border)] px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+                  className="ui-btn ui-btn-secondary w-full disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {isLoadingMoreHistory
                     ? "Loading older sessions..."
@@ -1092,7 +1079,7 @@ export function WorkoutSessionPage() {
                 {comparison?.comparisons?.slice(0, 6).map((row) => (
                   <article
                     key={row.exerciseName}
-                    className="rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] p-3 text-sm"
+                    className="ui-tile p-3 text-sm"
                   >
                     <p className="font-semibold">{row.exerciseName}</p>
                     <p className="text-[var(--muted)]">
@@ -1108,7 +1095,7 @@ export function WorkoutSessionPage() {
                   </article>
                 ))}
                 {!comparison ? (
-                  <p className="text-sm text-[var(--muted)]">
+                  <p className="ui-status text-sm">
                     Select a session to load comparison.
                   </p>
                 ) : null}

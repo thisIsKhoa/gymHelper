@@ -8,12 +8,15 @@ Modern full-stack app for individual workout logging, progression analytics, bod
 - Backend: Node.js + Express + Prisma
 - Database: PostgreSQL
 - Auth: JWT (HttpOnly cookie transport, Bearer fallback)
-- Realtime: Socket.IO (rest timer sync)
+- Queue/Background jobs: BullMQ + Redis
+- Realtime: Socket.IO (rest timer + achievement events)
 
 ## Core Features
 
 - Workout Tracking: sets, reps, weight, rest time, session history by date
 - Progress Tracking: bench progression by week, PR per exercise, volume/frequency charts
+- Gamification: muscle skill trees (EXP + level), radar balance chart, trophies, level-up notifications
+- Production-ready gamification pipeline: Redis-backed job queue with retry + worker processing
 - Body Metrics: weight, optional body fat %, optional muscle mass, trend charts
 - Training Plan: create, edit, duplicate, and reuse weekly schedules (Push/Pull/Legs etc.)
 - Rest Timer: built-in countdown per set with optional socket sync
@@ -35,6 +38,10 @@ Modern full-stack app for individual workout logging, progression analytics, bod
 5. Start both apps:
    - `npm run dev`
 
+For queue worker (recommended when Redis is enabled):
+
+- `npm run dev:worker --workspace @gymhelper/api`
+
 - Web: `http://localhost:5173`
 - API: `http://localhost:4000`
 
@@ -43,8 +50,9 @@ Modern full-stack app for individual workout logging, progression analytics, bod
 1. Dashboard
 2. Workout Session
 3. Progress
-4. Body Metrics
-5. Training Plan
+4. Profile (Skill Trees + Trophy Room)
+5. Body Metrics
+6. Training Plan
 
 ## Workspace
 
@@ -69,6 +77,9 @@ docs/          Architecture, ERD, API, UI, key code examples
 - `GET /api/v1/progress/overview`
 - `GET /api/v1/progress/exercise/:exerciseName`
 - `GET /api/v1/dashboard/overview`
+- `GET /api/v1/gamification/profile`
+- `POST /api/v1/gamification/notifications/consume`
+- `POST /api/v1/gamification/activity/ping`
 - `POST /api/v1/plans`
 - `PUT /api/v1/plans/:planId`
 - `POST /api/v1/plans/:planId/duplicate`
@@ -89,6 +100,8 @@ docs/          Architecture, ERD, API, UI, key code examples
   - `npm run lint`
 - API:
   - `npm run dev --workspace @gymhelper/api`
+  - `npm run dev:worker --workspace @gymhelper/api`
+  - `npm run worker:gamification --workspace @gymhelper/api`
   - `npm run test --workspace @gymhelper/api`
   - `npm run prisma:migrate --workspace @gymhelper/api`
 - Web:
