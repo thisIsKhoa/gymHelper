@@ -40,8 +40,8 @@
 ## Body Metrics
 
 - `pages/BodyMetricsPage.tsx`
-  - metric entry form
-  - weight/composition line charts
+  - metric entry form (weight + optional body-fat + optional muscle-mass + notes)
+  - weight/composition trend chart and latest snapshot cards
 
 ## Training Plan
 
@@ -64,4 +64,4 @@
 - bottom floating nav for thumb reach
 - dark mode as primary visual theme with light mode support
 - large action buttons for quick set logging
-- keyboard shortcuts for desktop speed (L = log set, S = save session)
+- keyboard shortcuts for desktop speed (`L` = log set)

@@ -20,7 +20,7 @@ const COMMON_HISTORY_LIMITS: ReadonlyArray<number | null> = [null, 8];
 const COMMON_PROGRESS_WEEKS: ReadonlyArray<number> = [8, 12, 16, 24];
 const COMMON_ANALYTIC_WEEKS: ReadonlyArray<number> = [8, 12, 16, 24];
 
-function calculateVolume(sets: number, reps: number, weightKg?: number): number {
+export function calculateVolume(sets: number, reps: number, weightKg?: number): number {
   if (!weightKg) {
     return 0;
   }
@@ -28,7 +28,7 @@ function calculateVolume(sets: number, reps: number, weightKg?: number): number 
   return Number((sets * reps * weightKg).toFixed(2));
 }
 
-function calculateEstimatedOneRm(weightKg?: number, reps?: number): number {
+export function calculateEstimatedOneRm(weightKg?: number, reps?: number): number {
   if (!weightKg || !reps) {
     return 0;
   }
@@ -37,7 +37,7 @@ function calculateEstimatedOneRm(weightKg?: number, reps?: number): number {
   return Number((weightKg * (1 + reps / 30)).toFixed(2));
 }
 
-function toIsoWeek(date: Date): string {
+export function toIsoWeek(date: Date): string {
   const copy = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
   const dayNum = copy.getUTCDay() || 7;
   copy.setUTCDate(copy.getUTCDate() + 4 - dayNum);
@@ -46,11 +46,11 @@ function toIsoWeek(date: Date): string {
   return `${copy.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
 }
 
-function toSessionDateOnly(date: Date): Date {
+export function toSessionDateOnly(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 }
 
-function nextUtcDate(date: Date): Date {
+export function nextUtcDate(date: Date): Date {
   const copy = new Date(date);
   copy.setUTCDate(copy.getUTCDate() + 1);
   return copy;
@@ -58,6 +58,14 @@ function nextUtcDate(date: Date): Date {
 
 function normalizeExerciseName(name: string): string {
   return name.trim().toLowerCase();
+}
+
+export function suggestOverloadWeight(lastWeightKg: number, wasCompleted: boolean): number {
+  if (!(wasCompleted && lastWeightKg > 0)) {
+    return Number(lastWeightKg.toFixed(2));
+  }
+
+  return Number((lastWeightKg + 2.5).toFixed(2));
 }
 
 const compoundExercises = new Set([
@@ -619,7 +627,7 @@ export async function getWorkoutSuggestion(userId: string, exerciseName: string)
 
       const lastWeightKg = latestEntry.weightKg ?? 0;
       const shouldIncrease = Boolean(latestEntry.isCompleted && lastWeightKg > 0);
-      const suggestedWeightKg = shouldIncrease ? Number((lastWeightKg + 2.5).toFixed(2)) : lastWeightKg;
+      const suggestedWeightKg = suggestOverloadWeight(lastWeightKg, shouldIncrease);
 
       return {
         exerciseName: requestedExerciseName,

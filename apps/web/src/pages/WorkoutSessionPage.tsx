@@ -20,7 +20,7 @@ import {
 import { RestTimer } from "../components/workout/RestTimer.tsx";
 import { Card } from "../components/ui/Card.tsx";
 import { useSuccessToast } from "../components/ui/success-toast.tsx";
-import { apiRequest, getAuthToken } from "../lib/api.ts";
+import { apiRequest } from "../lib/api.ts";
 import {
   enqueueWorkout,
   getQueuedWorkouts,
@@ -685,14 +685,11 @@ export function WorkoutSessionPage() {
 
   const exportCsv = async () => {
     try {
-      const token = getAuthToken();
       const response = await fetch(
         `${import.meta.env.VITE_API_URL ?? "http://localhost:4000/api/v1"}/workouts/export/csv`,
         {
           method: "GET",
-          headers: {
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
+          credentials: "include",
         },
       );
 
@@ -773,7 +770,8 @@ export function WorkoutSessionPage() {
               </div>
             ) : (
               <p className="mb-4 rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-2 text-sm text-[var(--muted)]">
-                Chua co plan cho hom nay. Ban van co the log buoi tap thu cong.
+                No plan found for today. You can still log your workout
+                manually.
               </p>
             )}
 

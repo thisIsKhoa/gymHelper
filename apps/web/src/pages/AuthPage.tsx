@@ -3,12 +3,11 @@ import { Eye, EyeOff, LogIn, ShieldCheck, UserPlus } from "lucide-react";
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
-import { setAuthToken, apiRequest } from "../lib/api.ts";
+import { apiRequest, clearAuthToken } from "../lib/api.ts";
 
 type AuthMode = "login" | "register";
 
 interface AuthResponse {
-  token: string;
   user: {
     id: string;
     email: string;
@@ -48,7 +47,10 @@ export function AuthPage() {
         mode === "login" ? { email, password } : { name, email, password };
 
       const result = await apiRequest<AuthResponse>(endpoint, "POST", payload);
-      setAuthToken(result.token);
+      if (!result.user?.id) {
+        throw new Error("Authentication failed");
+      }
+      clearAuthToken();
       navigate(redirectPath, { replace: true });
     } catch (submitError) {
       if (submitError instanceof Error) {

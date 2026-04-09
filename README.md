@@ -7,7 +7,7 @@ Modern full-stack app for individual workout logging, progression analytics, bod
 - Frontend: React + TypeScript + TailwindCSS + Framer Motion + Recharts
 - Backend: Node.js + Express + Prisma
 - Database: PostgreSQL
-- Auth: JWT
+- Auth: JWT (HttpOnly cookie transport, Bearer fallback)
 - Realtime: Socket.IO (rest timer sync)
 
 ## Core Features
@@ -27,6 +27,7 @@ Modern full-stack app for individual workout logging, progression analytics, bod
    - `docker compose up -d`
 3. Install dependencies:
    - `npm install`
+   - Optional for E2E tests: `npm exec --workspace web playwright install chromium`
 4. Generate Prisma client and run migrations:
    - `npm run prisma:generate`
    - `npm run prisma:migrate --workspace @gymhelper/api`
@@ -55,6 +56,10 @@ docs/          Architecture, ERD, API, UI, key code examples
 
 ## API Surface
 
+- `POST /api/v1/auth/register`
+- `POST /api/v1/auth/login`
+- `POST /api/v1/auth/logout`
+- `GET /api/v1/auth/me`
 - `POST /api/v1/workouts`
 - `GET /api/v1/workouts/history`
 - `GET /api/v1/workouts/prs`
@@ -62,6 +67,7 @@ docs/          Architecture, ERD, API, UI, key code examples
 - `GET /api/v1/body-metrics/history`
 - `GET /api/v1/progress/overview`
 - `GET /api/v1/progress/exercise/:exerciseName`
+- `GET /api/v1/dashboard/overview`
 - `POST /api/v1/plans`
 - `PUT /api/v1/plans/:planId`
 - `POST /api/v1/plans/:planId/duplicate`
@@ -82,9 +88,11 @@ docs/          Architecture, ERD, API, UI, key code examples
   - `npm run lint`
 - API:
   - `npm run dev --workspace @gymhelper/api`
+  - `npm run test --workspace @gymhelper/api`
   - `npm run prisma:migrate --workspace @gymhelper/api`
 - Web:
   - `npm run dev --workspace web`
+  - `npm run test:e2e --workspace web`
 
 ## Debug / Launch
 

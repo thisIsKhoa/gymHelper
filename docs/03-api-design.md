@@ -6,6 +6,7 @@ Base URL: `/api/v1`
 
 - `POST /auth/register`
 - `POST /auth/login`
+- `POST /auth/logout`
 - `GET /auth/me`
 
 ## Workout Tracking
@@ -59,6 +60,12 @@ Base URL: `/api/v1`
   - This-week metrics (sessions, strongest lift, streak)
   - Latest body metric
 
+## Cache (Admin Only)
+
+- `POST /cache/item`
+- `PUT /cache/item`
+- Protected by auth + `ADMIN_EMAILS` allowlist
+
 ## Timer (Optional Realtime)
 
 - Socket events in API server:
@@ -70,5 +77,6 @@ Base URL: `/api/v1`
 ## Response Design Principles
 
 - Chart-first payloads (avoid heavy frontend reshaping)
-- User-isolated datasets (all protected routes require JWT)
+- User-isolated datasets (all protected routes require a valid JWT via
+  HttpOnly cookie or Bearer token)
 - Time-series endpoints return ordered points for direct rendering

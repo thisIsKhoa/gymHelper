@@ -12,6 +12,7 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(16).default('gymhelper_super_secret_dev_key'),
   JWT_EXPIRES_IN: z.string().default('7d'),
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
+  ADMIN_EMAILS: z.string().default(''),
 });
 
 export const env = envSchema.parse(process.env);

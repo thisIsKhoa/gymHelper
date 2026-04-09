@@ -13,7 +13,7 @@ import {
 import { motion, useReducedMotion } from "framer-motion";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 
-import { clearAuthToken } from "../../lib/api.ts";
+import { apiRequest, clearAuthToken } from "../../lib/api.ts";
 import { useThemeStore } from "../../stores/theme-store.ts";
 
 const navItems = [
@@ -68,9 +68,14 @@ export function AppShell() {
   const pageTitle = titleFromPath(location.pathname);
   const pageSubtitle = subtitleFromPath(location.pathname);
 
-  const handleLogout = () => {
-    clearAuthToken();
-    navigate("/auth", { replace: true });
+  const handleLogout = async () => {
+    try {
+      await apiRequest("/auth/logout", "POST");
+    } finally {
+      // Cleanup legacy token from previous localStorage-based auth.
+      clearAuthToken();
+      navigate("/auth", { replace: true });
+    }
   };
 
   return (
@@ -110,7 +115,7 @@ export function AppShell() {
               <button
                 type="button"
                 className="ui-btn ui-btn-secondary inline-flex min-w-11 items-center justify-center px-3"
-                onClick={handleLogout}
+                onClick={() => void handleLogout()}
                 aria-label="Logout"
               >
                 <LogOut size={16} />

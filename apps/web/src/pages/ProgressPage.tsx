@@ -192,8 +192,8 @@ export function ProgressPage() {
           </ChartContainer>
         ) : (
           <p className="rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-6 text-sm text-[var(--muted)]">
-            Chua co du lieu cho bai tap nay. Hay log them workout de thay bieu
-            do.
+            No data found for this exercise yet. Log more workouts to see the
+            chart.
           </p>
         )}
       </Card>
@@ -228,7 +228,7 @@ export function ProgressPage() {
             </ChartContainer>
           ) : (
             <p className="rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-6 text-sm text-[var(--muted)]">
-              Chua co du lieu volume cho bai tap nay.
+              No volume data available for this exercise yet.
             </p>
           )}
         </Card>
@@ -262,7 +262,7 @@ export function ProgressPage() {
             </ChartContainer>
           ) : (
             <p className="rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-6 text-sm text-[var(--muted)]">
-              Chua co du lieu tan suat tap luyen.
+              No training frequency data available yet.
             </p>
           )}
           {analytics ? (
