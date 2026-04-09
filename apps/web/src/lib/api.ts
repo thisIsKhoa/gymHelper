@@ -21,16 +21,25 @@ async function performRequest<T>(
   method: HttpMethod,
   token: string | null,
   body?: unknown,
+  cacheKey?: string,
 ): Promise<T> {
   const response = await fetch(url, {
     method,
     credentials: 'include',
+    cache: 'no-store',
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
   })
+
+  if (response.status === 304 && method === 'GET' && cacheKey) {
+    const cached = getResponseCache.get(cacheKey)
+    if (cached) {
+      return cached.data as T
+    }
+  }
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({ message: 'Request failed' }))
@@ -74,7 +83,7 @@ export async function apiRequest<T>(path: string, method: HttpMethod, body?: unk
       return inFlight as Promise<T>
     }
 
-    const requestPromise = performRequest<T>(url, method, token)
+    const requestPromise = performRequest<T>(url, method, token, undefined, cacheKey)
       .then((data) => {
         getResponseCache.set(cacheKey, {
           expiresAt: Date.now() + GET_CACHE_TTL_MS,

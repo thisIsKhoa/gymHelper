@@ -5,6 +5,8 @@ import { getProfile, loginUser, registerUser } from './auth.service.js';
 import { AUTH_ACCESS_COOKIE } from './auth.constants.js';
 import { loginSchema, registerSchema } from './auth.schemas.js';
 
+type CookieSameSite = NonNullable<CookieOptions['sameSite']>;
+
 function parseJwtExpiresInToMs(value: string): number | undefined {
   const match = value.trim().match(/^(\d+)([smhd])$/i);
   if (!match) {
@@ -32,13 +34,32 @@ function parseJwtExpiresInToMs(value: string): number | undefined {
   }
 }
 
+function resolveCookieSameSite(): CookieSameSite {
+  if (env.AUTH_COOKIE_SAME_SITE) {
+    return env.AUTH_COOKIE_SAME_SITE;
+  }
+
+  return env.NODE_ENV === 'production' ? 'none' : 'lax';
+}
+
+function resolveCookieSecure(sameSite: CookieSameSite): boolean {
+  const secureFromEnv = env.AUTH_COOKIE_SECURE
+    ? env.AUTH_COOKIE_SECURE === 'true'
+    : env.NODE_ENV === 'production';
+
+  // Browsers reject SameSite=None unless Secure is enabled.
+  return sameSite === 'none' ? true : secureFromEnv;
+}
+
 function buildCookieOptions(): CookieOptions {
   const maxAge = parseJwtExpiresInToMs(env.JWT_EXPIRES_IN);
+  const sameSite = resolveCookieSameSite();
+  const secure = resolveCookieSecure(sameSite);
 
   return {
     httpOnly: true,
-    sameSite: 'lax',
-    secure: env.NODE_ENV === 'production',
+    sameSite,
+    secure,
     path: '/',
     ...(typeof maxAge === 'number' ? { maxAge } : {}),
   };
@@ -49,11 +70,13 @@ function setAuthCookie(res: Response, token: string): void {
 }
 
 function clearAuthCookie(res: Response): void {
+  const cookieOptions = buildCookieOptions();
+
   res.clearCookie(AUTH_ACCESS_COOKIE, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: env.NODE_ENV === 'production',
-    path: '/',
+    httpOnly: cookieOptions.httpOnly,
+    sameSite: cookieOptions.sameSite,
+    secure: cookieOptions.secure,
+    path: cookieOptions.path,
   });
 }
 

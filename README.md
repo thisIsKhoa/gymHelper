@@ -27,6 +27,7 @@ Modern full-stack app for individual workout logging, progression analytics, bod
 1. Copy environment variables:
    - Copy `.env.example` values into `apps/api/.env`
    - For IPv4-only networks, use Supabase Session Pooler string from Dashboard > Connect > Session mode
+   - If frontend and API are on different top-level domains in production, set `AUTH_COOKIE_SAME_SITE=none` and `AUTH_COOKIE_SECURE=true`
 2. Optional (local DB only):
    - `docker compose up -d`
 3. Install dependencies:
