@@ -35,9 +35,9 @@ interface PaginatedResponse<T> {
   items: T[];
   pagination: {
     limit: number;
-    offset: number;
+    cursor: string | null;
     hasMore: boolean;
-    nextOffset: number | null;
+    nextCursor: string | null;
   };
 }
 
@@ -58,7 +58,7 @@ export function BodyMetricsPage() {
     notes: "",
   });
   const [history, setHistory] = useState<BodyMetricPoint[]>([]);
-  const [historyOffset, setHistoryOffset] = useState(0);
+  const [historyCursor, setHistoryCursor] = useState<string | null>(null);
   const [historyHasMore, setHistoryHasMore] = useState(false);
   const [isLoadingMoreHistory, setIsLoadingMoreHistory] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -71,12 +71,12 @@ export function BodyMetricsPage() {
 
     try {
       const result = await apiRequest<PaginatedResponse<BodyMetricPoint>>(
-        `/body-metrics/history?limit=${BODY_METRICS_HISTORY_PAGE_SIZE}&offset=0`,
+        `/body-metrics/history?limit=${BODY_METRICS_HISTORY_PAGE_SIZE}`,
         "GET",
       );
       setHistory(sortByLoggedAtAsc(result.items));
       setHistoryHasMore(result.pagination.hasMore);
-      setHistoryOffset(result.pagination.nextOffset ?? result.items.length);
+      setHistoryCursor(result.pagination.nextCursor ?? null);
     } catch (loadError) {
       setError(
         loadError instanceof Error
@@ -89,22 +89,20 @@ export function BodyMetricsPage() {
   };
 
   const loadMoreHistory = async () => {
-    if (!historyHasMore || isLoadingMoreHistory) {
+    if (!historyHasMore || isLoadingMoreHistory || !historyCursor) {
       return;
     }
 
     setIsLoadingMoreHistory(true);
     try {
       const result = await apiRequest<PaginatedResponse<BodyMetricPoint>>(
-        `/body-metrics/history?limit=${BODY_METRICS_HISTORY_PAGE_SIZE}&offset=${historyOffset}`,
+        `/body-metrics/history?limit=${BODY_METRICS_HISTORY_PAGE_SIZE}&cursor=${encodeURIComponent(historyCursor)}`,
         "GET",
       );
 
       setHistory((current) => sortByLoggedAtAsc([...current, ...result.items]));
       setHistoryHasMore(result.pagination.hasMore);
-      setHistoryOffset(
-        result.pagination.nextOffset ?? historyOffset + result.items.length,
-      );
+      setHistoryCursor(result.pagination.nextCursor ?? null);
     } catch {
       setStatus("Failed to load older metrics.");
     } finally {

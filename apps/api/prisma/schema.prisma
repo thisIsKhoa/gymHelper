@@ -80,6 +80,7 @@ model User {
   achievements          UserAchievement[]
   gamificationNotifications GamificationNotification[]
   dailyAppOpens         UserDailyAppOpen[]
+  exerciseStats         UserExerciseStat[]
   personalRecordEvents  PersonalRecordEvent[]
   gamificationStat      UserGamificationStat?
   gamificationJobRuns   GamificationJobRun[]
@@ -104,6 +105,7 @@ model WorkoutSession {
 
   @@index([userId, sessionDate])
   @@index([userId, sessionDate, createdAt])
+  @@index([userId, sessionDate(sort: Desc)], map: "WorkoutSession_userId_sessionDate_desc_idx")
 }
 
 model WorkoutEntry {
@@ -125,6 +127,27 @@ model WorkoutEntry {
   @@index([sessionId, exerciseName])
   @@index([sessionId, createdAt])
   @@index([exerciseName, createdAt])
+  @@index([exerciseName, sessionId])
+  @@index([weightKg])
+}
+
+model UserExerciseStat {
+  id            String   @id @default(cuid())
+  userId        String
+  exerciseName  String
+  entryCount    Int      @default(0)
+  firstWeightKg Float    @default(0)
+  latestWeightKg Float   @default(0)
+  bestWeightKg  Float    @default(0)
+  firstLiftAt   DateTime?
+  latestLiftAt  DateTime?
+  bestLiftAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, exerciseName])
+  @@index([userId, updatedAt])
 }
 
 model PersonalRecord {
@@ -139,6 +162,7 @@ model PersonalRecord {
 
   @@unique([userId, exerciseName])
   @@index([userId, bestWeightKg, bestVolume])
+  @@index([userId, updatedAt])
 }
 
 model BodyMetric {

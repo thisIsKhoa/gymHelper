@@ -1,5 +1,4 @@
-import type { Prisma } from '@prisma/client';
-import { ExerciseType } from '@prisma/client';
+import { ExerciseType, Prisma } from '@prisma/client';
 
 import { prisma } from '../../db/prisma.js';
 import { enqueueWorkoutGamificationJob } from '../gamification/gamification.queue.js';
@@ -573,6 +572,12 @@ export async function getPersonalRecords(userId: string) {
     async () =>
       prisma.personalRecord.findMany({
         where: { userId },
+        select: {
+          exerciseName: true,
+          bestWeightKg: true,
+          bestVolume: true,
+          achievedAt: true,
+        },
         orderBy: [{ bestWeightKg: 'desc' }, { bestVolume: 'desc' }],
       }),
   );
@@ -677,44 +682,36 @@ type SuggestedEntry = {
   rpe: number | null;
   estimated1Rm: number;
   isCompleted: boolean;
-  session: {
-    sessionDate: Date;
-  };
+  sessionDate: Date;
 };
 
 async function findLatestEntryForSuggestion(
   userId: string,
   exerciseName: string,
 ): Promise<SuggestedEntry | null> {
-  const findByExercise = (useCaseInsensitive: boolean) =>
-    prisma.workoutEntry.findFirst({
-      where: {
-        ...(useCaseInsensitive
-          ? {
-              exerciseName: {
-                equals: exerciseName,
-                mode: 'insensitive',
-              },
-            }
-          : { exerciseName }),
-        session: {
-          userId,
-        },
-      },
-      select: {
-        weightKg: true,
-        reps: true,
-        rpe: true,
-        estimated1Rm: true,
-        isCompleted: true,
-        session: {
-          select: {
-            sessionDate: true,
-          },
-        },
-      },
-      orderBy: [{ session: { sessionDate: 'desc' } }, { createdAt: 'desc' }],
-    });
+  const findByExercise = async (useCaseInsensitive: boolean): Promise<SuggestedEntry | null> => {
+    const exerciseNameComparator = useCaseInsensitive
+      ? Prisma.sql`LOWER(we."exerciseName") = LOWER(${exerciseName})`
+      : Prisma.sql`we."exerciseName" = ${exerciseName}`;
+
+    const rows = await prisma.$queryRaw<SuggestedEntry[]>`
+      SELECT
+        we."weightKg" AS "weightKg",
+        we."reps" AS "reps",
+        we."rpe" AS "rpe",
+        we."estimated1Rm" AS "estimated1Rm",
+        we."isCompleted" AS "isCompleted",
+        ws."sessionDate" AS "sessionDate"
+      FROM "WorkoutEntry" AS we
+      INNER JOIN "WorkoutSession" AS ws ON ws."id" = we."sessionId"
+      WHERE ws."userId" = ${userId}
+        AND ${exerciseNameComparator}
+      ORDER BY ws."sessionDate" DESC, we."createdAt" DESC
+      LIMIT 1
+    `;
+
+    return rows[0] ?? null;
+  };
 
   const exact = await findByExercise(false);
   if (exact) {
@@ -784,7 +781,7 @@ export async function getWorkoutSuggestion(userId: string, exerciseName: string)
       return {
         exerciseName: requestedExerciseName,
         hasPreviousData: true,
-        lastSessionDate: latestEntry.session.sessionDate,
+        lastSessionDate: latestEntry.sessionDate,
         lastWeightKg,
         lastReps: latestEntry.reps,
         lastRpe: latestEntry.rpe,
@@ -813,6 +810,12 @@ export async function getWorkoutAnalytics(userId: string, weeks = 8) {
     async () => {
       const weeklyStatsDesc = await prisma.weeklyWorkoutStat.findMany({
         where: { userId },
+        select: {
+          isoWeek: true,
+          totalVolume: true,
+          sessionsCount: true,
+          strongestLiftKg: true,
+        },
         orderBy: { isoWeek: 'desc' },
         take: Math.max(1, weeks),
       });
@@ -866,8 +869,24 @@ export async function getWorkoutAnalytics(userId: string, weeks = 8) {
 export async function exportWorkoutHistoryCsv(userId: string): Promise<string> {
   const sessions = await prisma.workoutSession.findMany({
     where: { userId },
-    include: {
-      entries: true,
+    select: {
+      sessionDate: true,
+      entries: {
+        select: {
+          exerciseName: true,
+          sets: true,
+          reps: true,
+          weightKg: true,
+          rpe: true,
+          restSeconds: true,
+          volume: true,
+          estimated1Rm: true,
+          isCompleted: true,
+        },
+        orderBy: {
+          createdAt: 'asc',
+        },
+      },
     },
     orderBy: [{ sessionDate: 'desc' }, { createdAt: 'desc' }],
   });

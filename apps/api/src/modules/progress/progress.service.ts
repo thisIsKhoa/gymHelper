@@ -39,18 +39,24 @@ export async function getExerciseProgressByWeek(userId: string, exerciseName: st
           max_estimated_1rm: number | null;
         }>
       >`
+        WITH filtered_sessions AS (
+          SELECT
+            ws."id",
+            ws."sessionDate"
+          FROM "WorkoutSession" AS ws
+          WHERE ws."userId" = ${userId}
+            AND ws."sessionDate" >= ${fromDate}
+        )
         SELECT
-          date_trunc('week', ws."sessionDate") AS week_start,
+          date_trunc('week', fs."sessionDate") AS week_start,
           SUM(COALESCE(we."weightKg", 0) * we."sets") AS total_weighted_kg,
           SUM(we."sets") AS total_sets,
           MAX(COALESCE(we."weightKg", 0)) AS max_weight_kg,
           SUM(COALESCE(we."volume", 0)) AS total_volume,
           MAX(COALESCE(we."estimated1Rm", 0)) AS max_estimated_1rm
         FROM "WorkoutEntry" AS we
-        INNER JOIN "WorkoutSession" AS ws ON ws."id" = we."sessionId"
-        WHERE ws."userId" = ${userId}
-          AND ws."sessionDate" >= ${fromDate}
-          AND we."exerciseName" = ${normalizedExerciseName}
+        INNER JOIN filtered_sessions AS fs ON fs."id" = we."sessionId"
+        WHERE we."exerciseName" = ${normalizedExerciseName}
         GROUP BY week_start
         ORDER BY week_start ASC
       `;
@@ -86,6 +92,12 @@ export async function getProgressOverview(userId: string) {
         getExerciseProgressByWeek(userId, 'Bench Press', 16),
         prisma.personalRecord.findMany({
           where: { userId },
+          select: {
+            exerciseName: true,
+            bestWeightKg: true,
+            bestVolume: true,
+            achievedAt: true,
+          },
           orderBy: [{ bestWeightKg: 'desc' }, { bestVolume: 'desc' }],
         }),
       ]);

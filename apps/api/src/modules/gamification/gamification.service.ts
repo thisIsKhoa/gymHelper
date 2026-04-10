@@ -19,6 +19,8 @@ const GAMIFICATION_PROFILE_TTL_MS = 30_000;
 const MIN_NOTIFICATION_BATCH = 1;
 const MAX_NOTIFICATION_BATCH = 20;
 
+let userExerciseStatTableAvailable: boolean | null = null;
+
 type Tx = Prisma.TransactionClient;
 
 export interface GamificationNotificationItem {
@@ -332,6 +334,147 @@ function toJsonPayload(value: Prisma.JsonValue | null): Record<string, unknown> 
   }
 
   return value as Record<string, unknown>;
+}
+
+function isMissingUserExerciseStatTable(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) {
+    return false;
+  }
+
+  if (error.code === 'P2021') {
+    const table = (error.meta as { table?: unknown } | undefined)?.table;
+    return typeof table !== 'string' || table.includes('UserExerciseStat');
+  }
+
+  if (error.code === 'P2010') {
+    const code = (error.meta as { code?: unknown } | undefined)?.code;
+    const message = (error.meta as { message?: unknown } | undefined)?.message;
+    return code === '42P01' && typeof message === 'string' && message.includes('UserExerciseStat');
+  }
+
+  return false;
+}
+
+async function refreshUserExerciseStatsForSession(tx: Tx, userId: string, sessionId: string): Promise<void> {
+  const touchedExercises = await tx.workoutEntry.findMany({
+    where: {
+      sessionId,
+      weightKg: {
+        not: null,
+      },
+    },
+    select: {
+      exerciseName: true,
+    },
+    distinct: ['exerciseName'],
+  });
+
+  const exerciseNames = touchedExercises.map((row) => row.exerciseName);
+
+  if (exerciseNames.length === 0) {
+    return;
+  }
+
+  const rows = await tx.$queryRaw<
+    Array<{
+      exercise_name: string;
+      entry_count: number | bigint;
+      first_weight_kg: number;
+      latest_weight_kg: number;
+      best_weight_kg: number;
+      first_lift_at: Date;
+      latest_lift_at: Date;
+      best_lift_at: Date;
+    }>
+  >`
+    WITH weighted AS (
+      SELECT
+        we."exerciseName" AS exercise_name,
+        we."weightKg"::double precision AS weight_kg,
+        ws."sessionDate" AS session_date,
+        we."createdAt" AS created_at
+      FROM "WorkoutEntry" AS we
+      INNER JOIN "WorkoutSession" AS ws ON ws."id" = we."sessionId"
+      WHERE ws."userId" = ${userId}
+        AND we."weightKg" IS NOT NULL
+        AND we."exerciseName" IN (${Prisma.join(exerciseNames)})
+    ),
+    first_lift AS (
+      SELECT DISTINCT ON (exercise_name)
+        exercise_name,
+        weight_kg AS first_weight_kg,
+        created_at AS first_lift_at
+      FROM weighted
+      ORDER BY exercise_name, session_date ASC, created_at ASC
+    ),
+    latest_lift AS (
+      SELECT DISTINCT ON (exercise_name)
+        exercise_name,
+        weight_kg AS latest_weight_kg,
+        created_at AS latest_lift_at
+      FROM weighted
+      ORDER BY exercise_name, session_date DESC, created_at DESC
+    ),
+    best_lift AS (
+      SELECT DISTINCT ON (exercise_name)
+        exercise_name,
+        weight_kg AS best_weight_kg,
+        created_at AS best_lift_at
+      FROM weighted
+      ORDER BY exercise_name, weight_kg DESC, session_date DESC, created_at DESC
+    ),
+    counts AS (
+      SELECT
+        exercise_name,
+        COUNT(*) AS entry_count
+      FROM weighted
+      GROUP BY exercise_name
+    )
+    SELECT
+      c.exercise_name,
+      c.entry_count,
+      f.first_weight_kg,
+      l.latest_weight_kg,
+      b.best_weight_kg,
+      f.first_lift_at,
+      l.latest_lift_at,
+      b.best_lift_at
+    FROM counts AS c
+    INNER JOIN first_lift AS f ON f.exercise_name = c.exercise_name
+    INNER JOIN latest_lift AS l ON l.exercise_name = c.exercise_name
+    INNER JOIN best_lift AS b ON b.exercise_name = c.exercise_name
+  `;
+
+  for (const row of rows) {
+    await tx.userExerciseStat.upsert({
+      where: {
+        userId_exerciseName: {
+          userId,
+          exerciseName: row.exercise_name,
+        },
+      },
+      update: {
+        entryCount: Number(row.entry_count),
+        firstWeightKg: Number(row.first_weight_kg.toFixed(2)),
+        latestWeightKg: Number(row.latest_weight_kg.toFixed(2)),
+        bestWeightKg: Number(row.best_weight_kg.toFixed(2)),
+        firstLiftAt: row.first_lift_at,
+        latestLiftAt: row.latest_lift_at,
+        bestLiftAt: row.best_lift_at,
+      },
+      create: {
+        userId,
+        exerciseName: row.exercise_name,
+        entryCount: Number(row.entry_count),
+        firstWeightKg: Number(row.first_weight_kg.toFixed(2)),
+        latestWeightKg: Number(row.latest_weight_kg.toFixed(2)),
+        bestWeightKg: Number(row.best_weight_kg.toFixed(2)),
+        firstLiftAt: row.first_lift_at,
+        latestLiftAt: row.latest_lift_at,
+        bestLiftAt: row.best_lift_at,
+      },
+    });
+  }
 }
 
 async function aggregateEntryExpBySkill(
@@ -790,6 +933,19 @@ export async function processWorkoutGamificationJob(payload: GamificationJobPayl
       },
     });
 
+    if (userExerciseStatTableAvailable !== false) {
+      try {
+        await refreshUserExerciseStatsForSession(tx, payload.userId, payload.sessionId);
+        userExerciseStatTableAvailable = true;
+      } catch (error) {
+        if (!isMissingUserExerciseStatTable(error)) {
+          throw error;
+        }
+
+        userExerciseStatTableAvailable = false;
+      }
+    }
+
     const levelUps: Array<{ skill: MuscleSkill; level: number; title: string; message: string }> = [];
 
     for (const [skill, gain] of expBySkill) {
@@ -864,6 +1020,7 @@ export async function processWorkoutGamificationJob(payload: GamificationJobPayl
     await Promise.allSettled(realtimePublishes);
   }
 
+  invalidateCacheKey(cacheNamespaces.dashboardOverview, serializeCacheKey([payload.userId]));
   invalidateCacheKey(cacheNamespaces.gamificationProfile, toProfileCacheKey(payload.userId));
 }
 

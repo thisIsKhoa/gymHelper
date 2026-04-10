@@ -1,8 +1,126 @@
+import { Prisma } from '@prisma/client';
+
 import { prisma } from '../../db/prisma.js';
 import { ACHIEVEMENT_DEFINITIONS } from '../gamification/gamification.constants.js';
 import { cacheNamespaces, readThroughCache, serializeCacheKey } from '../../utils/cache.js';
 
 const DASHBOARD_OVERVIEW_TTL_MS = 180_000;
+
+let userExerciseStatTableAvailable: boolean | null = null;
+
+function isMissingUserExerciseStatTable(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) {
+    return false;
+  }
+
+  if (error.code === 'P2021') {
+    const table = (error.meta as { table?: unknown } | undefined)?.table;
+    return typeof table !== 'string' || table.includes('UserExerciseStat');
+  }
+
+  if (error.code === 'P2010') {
+    const code = (error.meta as { code?: unknown } | undefined)?.code;
+    const message = (error.meta as { message?: unknown } | undefined)?.message;
+    return code === '42P01' && typeof message === 'string' && message.includes('UserExerciseStat');
+  }
+
+  return false;
+}
+
+async function queryStrengthIncreaseRowsFromLegacyScan(userId: string) {
+  return prisma.$queryRaw<
+    Array<{
+      exercise_name: string;
+      start_weight_kg: number | null;
+      current_weight_kg: number | null;
+    }>
+  >`
+    WITH user_sessions AS (
+      SELECT
+        ws."id",
+        ws."sessionDate"
+      FROM "WorkoutSession" AS ws
+      WHERE ws."userId" = ${userId}
+    ),
+    weighted AS (
+      SELECT
+        we."exerciseName" AS exercise_name,
+        we."weightKg"::double precision AS weight_kg,
+        us."sessionDate" AS session_date,
+        we."createdAt" AS created_at
+      FROM "WorkoutEntry" AS we
+      INNER JOIN user_sessions AS us ON us."id" = we."sessionId"
+      WHERE we."weightKg" IS NOT NULL
+    ),
+    first_lift AS (
+      SELECT DISTINCT ON (exercise_name)
+        exercise_name,
+        weight_kg AS start_weight_kg
+      FROM weighted
+      ORDER BY exercise_name, session_date ASC, created_at ASC
+    ),
+    latest_lift AS (
+      SELECT DISTINCT ON (exercise_name)
+        exercise_name,
+        weight_kg AS current_weight_kg
+      FROM weighted
+      ORDER BY exercise_name, session_date DESC, created_at DESC
+    ),
+    counts AS (
+      SELECT
+        exercise_name,
+        COUNT(*) AS entry_count
+      FROM weighted
+      GROUP BY exercise_name
+    )
+    SELECT
+      c.exercise_name,
+      f.start_weight_kg,
+      l.current_weight_kg
+    FROM counts AS c
+    INNER JOIN first_lift AS f ON f.exercise_name = c.exercise_name
+    INNER JOIN latest_lift AS l ON l.exercise_name = c.exercise_name
+    WHERE c.entry_count >= 2
+    ORDER BY (l.current_weight_kg - f.start_weight_kg) DESC
+    LIMIT 10
+  `;
+}
+
+async function queryStrengthIncreaseRows(userId: string) {
+  if (userExerciseStatTableAvailable === false) {
+    return queryStrengthIncreaseRowsFromLegacyScan(userId);
+  }
+
+  try {
+    const rows = await prisma.$queryRaw<
+      Array<{
+        exercise_name: string;
+        start_weight_kg: number | null;
+        current_weight_kg: number | null;
+      }>
+    >`
+      SELECT
+        ues."exerciseName" AS exercise_name,
+        ues."firstWeightKg" AS start_weight_kg,
+        ues."latestWeightKg" AS current_weight_kg
+      FROM "UserExerciseStat" AS ues
+      WHERE ues."userId" = ${userId}
+        AND ues."entryCount" >= 2
+      ORDER BY (ues."latestWeightKg" - ues."firstWeightKg") DESC
+      LIMIT 10
+    `;
+
+    userExerciseStatTableAvailable = true;
+    return rows;
+  } catch (error) {
+    if (!isMissingUserExerciseStatTable(error)) {
+      throw error;
+    }
+
+    userExerciseStatTableAvailable = false;
+    return queryStrengthIncreaseRowsFromLegacyScan(userId);
+  }
+}
 
 function weekKey(date: Date) {
   const copy = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
@@ -77,6 +195,12 @@ export async function getDashboardOverview(userId: string) {
           }),
           prisma.personalRecord.findMany({
             where: { userId },
+            select: {
+              exerciseName: true,
+              bestWeightKg: true,
+              bestVolume: true,
+              achievedAt: true,
+            },
             orderBy: {
               updatedAt: 'desc',
             },
@@ -84,78 +208,46 @@ export async function getDashboardOverview(userId: string) {
           }),
           prisma.bodyMetric.findFirst({
             where: { userId },
+            select: {
+              weightKg: true,
+              bodyFatPct: true,
+              muscleMassKg: true,
+            },
             orderBy: {
               loggedAt: 'desc',
             },
           }),
           prisma.weeklyWorkoutStat.findMany({
             where: { userId },
+            select: {
+              isoWeek: true,
+              totalVolume: true,
+              sessionsCount: true,
+              strongestLiftKg: true,
+            },
             orderBy: { isoWeek: 'desc' },
             take: 12,
           }),
-          prisma.$queryRaw<
-            Array<{
-              exercise_name: string;
-              start_weight_kg: number | null;
-              current_weight_kg: number | null;
-            }>
-          >`
-            WITH weighted AS (
-              SELECT
-                we."exerciseName" AS exercise_name,
-                we."weightKg"::double precision AS weight_kg,
-                ws."sessionDate" AS session_date,
-                we."createdAt" AS created_at
-              FROM "WorkoutEntry" AS we
-              INNER JOIN "WorkoutSession" AS ws ON ws."id" = we."sessionId"
-              WHERE ws."userId" = ${userId}
-                AND we."weightKg" IS NOT NULL
-            ),
-            first_lift AS (
-              SELECT DISTINCT ON (exercise_name)
-                exercise_name,
-                weight_kg AS start_weight_kg
-              FROM weighted
-              ORDER BY exercise_name, session_date ASC, created_at ASC
-            ),
-            latest_lift AS (
-              SELECT DISTINCT ON (exercise_name)
-                exercise_name,
-                weight_kg AS current_weight_kg
-              FROM weighted
-              ORDER BY exercise_name, session_date DESC, created_at DESC
-            ),
-            counts AS (
-              SELECT
-                exercise_name,
-                COUNT(*) AS entry_count
-              FROM weighted
-              GROUP BY exercise_name
-            )
-            SELECT
-              c.exercise_name,
-              f.start_weight_kg,
-              l.current_weight_kg
-            FROM counts AS c
-            INNER JOIN first_lift AS f ON f.exercise_name = c.exercise_name
-            INNER JOIN latest_lift AS l ON l.exercise_name = c.exercise_name
-            WHERE c.entry_count >= 2
-            ORDER BY (l.current_weight_kg - f.start_weight_kg) DESC
-            LIMIT 10
-          `,
+          queryStrengthIncreaseRows(userId),
           prisma.$queryRaw<
             Array<{
               week_start: Date;
               max_weight_kg: number | null;
             }>
           >`
+            WITH user_sessions AS (
+              SELECT
+                ws."id",
+                ws."sessionDate"
+              FROM "WorkoutSession" AS ws
+              WHERE ws."userId" = ${userId}
+            )
             SELECT
-              date_trunc('week', ws."sessionDate") AS week_start,
+              date_trunc('week', us."sessionDate") AS week_start,
               MAX(we."weightKg") AS max_weight_kg
             FROM "WorkoutEntry" AS we
-            INNER JOIN "WorkoutSession" AS ws ON ws."id" = we."sessionId"
-            WHERE ws."userId" = ${userId}
-              AND we."weightKg" IS NOT NULL
+            INNER JOIN user_sessions AS us ON us."id" = we."sessionId"
+            WHERE we."weightKg" IS NOT NULL
               AND we."exerciseName" IN ('Bench Press', 'bench press')
             GROUP BY week_start
             ORDER BY week_start ASC
