@@ -1,9 +1,9 @@
 import type { CookieOptions, NextFunction, Request, Response } from 'express';
 
 import { env } from '../../config/env.js';
-import { getProfile, loginUser, registerUser, resetPassword as resetPasswordService } from './auth.service.js';
+import { getProfile, loginUser, registerUser, resetPassword as resetPasswordService, regenerateRecoveryCode as regenerateRecoveryCodeService } from './auth.service.js';
 import { AUTH_ACCESS_COOKIE } from './auth.constants.js';
-import { loginSchema, registerSchema, resetPasswordSchema } from './auth.schemas.js';
+import { loginSchema, registerSchema, resetPasswordSchema, regenerateRecoveryCodeSchema } from './auth.schemas.js';
 
 type CookieSameSite = NonNullable<CookieOptions['sameSite']>;
 
@@ -121,6 +121,16 @@ export async function resetPassword(req: Request, res: Response, next: NextFunct
     const input = resetPasswordSchema.parse(req.body);
     await resetPasswordService(input);
     res.status(200).json({ message: 'Password reset successfully' });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function regenerateRecoveryCode(req: Request, res: Response, next: NextFunction) {
+  try {
+    const input = regenerateRecoveryCodeSchema.parse(req.body);
+    const recoveryCode = await regenerateRecoveryCodeService(req.user!.id, input);
+    res.status(200).json({ recoveryCode });
   } catch (error) {
     next(error);
   }

@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { Award, ShieldQuestion, Sparkles, Star } from "lucide-react";
+import { Award, ShieldQuestion, Sparkles, Star, Key, Code, Check } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import {
   PolarAngleAxis,
   PolarGrid,
@@ -15,6 +15,7 @@ import { Card } from "../components/ui/Card.tsx";
 import { ChartContainer } from "../components/ui/ChartContainer.tsx";
 import { LoadingState } from "../components/ui/LoadingState.tsx";
 import { loadGamificationProfile } from "../lib/gamification.ts";
+import { apiRequest } from "../lib/api.ts";
 import type {
   AchievementItem,
   GamificationProfileResponse,
@@ -132,6 +133,33 @@ export function ProfilePage() {
   const [activeLevelUp, setActiveLevelUp] = useState<LevelUpPayload | null>(
     null,
   );
+  
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newRecoveryCode, setNewRecoveryCode] = useState<string | null>(null);
+  const [isCopied, setIsCopied] = useState(false);
+  const [regenerateError, setRegenerateError] = useState("");
+
+  const { mutate: regenerateCode, isPending: isRegenerating } = useMutation({
+    mutationFn: (password: string) =>
+      apiRequest<{ recoveryCode: string }>('/auth/regenerate-recovery-code', 'POST', { currentPassword: password }),
+    onSuccess: (data) => {
+      setNewRecoveryCode(data.recoveryCode);
+      setCurrentPassword("");
+      setRegenerateError("");
+    },
+    onError: (error) => {
+      setRegenerateError((error as Error).message || "Failed to regenerate code");
+    }
+  });
+
+  const handleCopyCode = async () => {
+    if (newRecoveryCode) {
+      await navigator.clipboard.writeText(newRecoveryCode);
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 2000);
+    }
+  };
 
   const {
     data: profile,
@@ -365,6 +393,26 @@ export function ProfilePage() {
             ))}
           </div>
         </Card>
+
+        <Card title="Account Security" subtitle="Manage your account backup options">
+          <div className="flex flex-col sm:flex-row gap-4 items-center justify-between rounded-xl border border-[var(--border)] p-4 bg-[var(--surface-solid)]">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-500/10 text-red-500">
+                <Key size={20} />
+              </div>
+              <div>
+                <h3 className="font-semibold text-sm">Recovery Code</h3>
+                <p className="text-xs text-[var(--muted)]">Generate a new 6-digit recovery code if you lose your current one.</p>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowPasswordModal(true)}
+              className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90 whitespace-nowrap"
+            >
+              Regenerate Code
+            </button>
+          </div>
+        </Card>
       </div>
 
       <AnimatePresence>
@@ -413,6 +461,108 @@ export function ProfilePage() {
             </motion.div>
           </motion.div>
         ) : null}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showPasswordModal && (
+          <motion.div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => {
+              if (!newRecoveryCode) setShowPasswordModal(false);
+            }}
+          >
+            <motion.div
+              className="relative w-full max-w-sm overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface-solid)] p-6 shadow-2xl"
+              initial={{ y: 20, scale: 0.95, opacity: 0 }}
+              animate={{ y: 0, scale: 1, opacity: 1 }}
+              exit={{ y: 20, scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {!newRecoveryCode ? (
+                <>
+                  <div className="mb-4 flex items-center gap-2 text-[var(--accent)]">
+                    <Key size={24} />
+                    <h3 className="text-lg font-bold text-[var(--foreground)]">Security Check</h3>
+                  </div>
+                  <p className="mb-4 text-sm text-[var(--muted)]">
+                    Please enter your current password to regenerate your recovery code. The old code will be instantly invalidated.
+                  </p>
+                  
+                  {regenerateError && (
+                    <div className="mb-4 rounded-md bg-red-500/10 p-2 text-xs font-semibold text-red-500">
+                      {regenerateError}
+                    </div>
+                  )}
+
+                  <input
+                    type="password"
+                    placeholder="Current Password"
+                    className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-sm focus:border-[var(--accent)] focus:outline-none"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                  />
+
+                  <div className="mt-6 flex justify-end gap-3">
+                    <button
+                      onClick={() => {
+                        setShowPasswordModal(false);
+                        setCurrentPassword("");
+                        setRegenerateError("");
+                      }}
+                      className="rounded-lg px-4 py-2 text-sm font-semibold text-[var(--muted)] hover:text-[var(--foreground)]"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => regenerateCode(currentPassword)}
+                      disabled={isRegenerating || currentPassword.length < 8}
+                      className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                    >
+                      {isRegenerating ? "Verifying..." : "Regenerate"}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="text-center">
+                  <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-green-500/10 text-green-500">
+                    <Code size={32} />
+                  </div>
+                  <h3 className="text-lg font-bold text-[var(--foreground)]">New Recovery Code</h3>
+                  <p className="mt-2 text-sm text-[var(--muted)]">
+                    Save this 6-digit code in a secure place. It will only be shown once and your old code is no longer valid.
+                  </p>
+
+                  <div className="mt-6 rounded-xl bg-[var(--surface)] p-4 border border-[var(--border)]">
+                    <div className="text-3xl font-mono tracking-[0.25em] text-[var(--accent)] text-center font-bold">
+                      {newRecoveryCode}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleCopyCode}
+                    className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--accent)] p-3 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+                  >
+                    {isCopied ? <Check size={18} /> : <Code size={18} />}
+                    {isCopied ? "Copied!" : "Copy to Clipboard"}
+                  </button>
+                  
+                  <button
+                    onClick={() => {
+                      setNewRecoveryCode(null);
+                      setShowPasswordModal(false);
+                    }}
+                    className="mt-3 w-full rounded-xl p-3 text-sm font-semibold text-[var(--muted)] hover:bg-[var(--surface)] transition-colors"
+                  >
+                    I have saved it
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
       </AnimatePresence>
     </>
   );

@@ -1094,41 +1094,46 @@ export async function runWorkoutGamificationPipeline(userId: string, payload: Wo
 export async function recordDailyAppOpen(userId: string, at: Date = new Date()): Promise<void> {
   const activityDate = dateOnlyUtc(at);
 
-  await prisma.$transaction(async (tx) => {
-    await tx.userDailyAppOpen.upsert({
-      where: {
-        userId_activityDate: {
-          userId,
-          activityDate,
-        },
-      },
-      update: {},
-      create: {
+  await prisma.userDailyAppOpen.upsert({
+    where: {
+      userId_activityDate: {
         userId,
         activityDate,
       },
-    });
+    },
+    update: {},
+    create: {
+      userId,
+      activityDate,
+    },
   });
 
-  const unlockedAchievements = await prisma.$transaction(async (tx) => upsertAchievements(tx, userId));
+  // Run the heavy achievement computation asynchronously so we don't block the API
+  Promise.resolve().then(async () => {
+    try {
+      const unlockedAchievements = await prisma.$transaction(async (tx) => upsertAchievements(tx, userId));
 
-  if (unlockedAchievements.length > 0) {
-    await Promise.allSettled(
-      unlockedAchievements.map((item) =>
-        publishGamificationRealtimeEvent({
-          type: 'achievement:unlocked',
-          userId,
-          payload: {
-            code: item.code,
-            title: item.title,
-            message: item.message,
-            iconKey: item.iconKey,
-          },
-        })),
-    );
-  }
+      if (unlockedAchievements.length > 0) {
+        await Promise.allSettled(
+          unlockedAchievements.map((item) =>
+            publishGamificationRealtimeEvent({
+              type: 'achievement:unlocked',
+              userId,
+              payload: {
+                code: item.code,
+                title: item.title,
+                message: item.message,
+                iconKey: item.iconKey,
+              },
+            })),
+        );
+      }
 
-  invalidateCacheKey(cacheNamespaces.gamificationProfile, toProfileCacheKey(userId));
+      invalidateCacheKey(cacheNamespaces.gamificationProfile, toProfileCacheKey(userId));
+    } catch (error) {
+      console.error('[Gamification] Background app open achievement computation failed:', error);
+    }
+  });
 }
 
 export async function getGamificationProfile(userId: string) {

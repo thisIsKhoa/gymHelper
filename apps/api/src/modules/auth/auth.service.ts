@@ -25,14 +25,15 @@ export async function registerUser(input: RegisterInput) {
   }
 
   const passwordHash = await bcrypt.hash(input.password, 10);
-  const recoveryCode = Math.floor(100000 + Math.random() * 900000).toString();
+  const rawRecoveryCode = Math.floor(100000 + Math.random() * 900000).toString();
+  const recoveryCodeHash = await bcrypt.hash(rawRecoveryCode, 10);
 
   const user = await prisma.user.create({
     data: {
       email: input.email,
       name: input.name,
       passwordHash,
-      recoveryCode,
+      recoveryCodeHash,
       level: input.level,
       goal: input.goal,
     },
@@ -48,7 +49,7 @@ export async function registerUser(input: RegisterInput) {
 
   return {
     token: signToken({ id: user.id, email: user.email }),
-    recoveryCode,
+    recoveryCode: rawRecoveryCode,
     user,
   };
 }
@@ -106,13 +107,47 @@ export async function resetPassword(input: ResetPasswordInput) {
     where: { email: input.email },
   });
 
-  if (!user || user.recoveryCode !== input.recoveryCode) {
+  if (!user || (!user.recoveryCodeHash)) {
+    throw new HttpError(401, 'Invalid email or recovery code');
+  }
+
+  const isValidCode = await bcrypt.compare(input.recoveryCode, user.recoveryCodeHash);
+  if (!isValidCode) {
     throw new HttpError(401, 'Invalid email or recovery code');
   }
 
   const passwordHash = await bcrypt.hash(input.newPassword, 10);
   await prisma.user.update({
     where: { id: user.id },
-    data: { passwordHash },
+    data: { 
+      passwordHash,
+      recoveryCodeHash: null // Invalidate code after single use to prevent replay attacks
+    },
   });
+}
+
+export async function regenerateRecoveryCode(userId: string, input: { currentPassword: string }) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, passwordHash: true }
+  });
+
+  if (!user) {
+    throw new HttpError(404, 'User not found');
+  }
+
+  const isValidPassword = await bcrypt.compare(input.currentPassword, user.passwordHash);
+  if (!isValidPassword) {
+    throw new HttpError(401, 'Invalid current password');
+  }
+
+  const rawRecoveryCode = Math.floor(100000 + Math.random() * 900000).toString();
+  const recoveryCodeHash = await bcrypt.hash(rawRecoveryCode, 10);
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { recoveryCodeHash }
+  });
+
+  return rawRecoveryCode;
 }
