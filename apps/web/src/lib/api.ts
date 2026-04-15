@@ -1,8 +1,20 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api/v1'
 const AUTH_TOKEN_KEY = 'gymhelper-token'
 const GET_CACHE_TTL_MS = Number(import.meta.env.VITE_HTTP_CACHE_TTL_MS ?? 20_000)
+const API_BASE_PATH = (() => {
+  try {
+    const pathname = new URL(API_BASE_URL).pathname
+    return pathname.endsWith('/') ? pathname.slice(0, -1) : pathname
+  } catch {
+    return '/api/v1'
+  }
+})()
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE'
+
+interface ApiRequestOptions {
+  invalidatePrefixes?: string[]
+}
 
 interface CacheEntry {
   expiresAt: number
@@ -14,6 +26,127 @@ const inFlightGetRequests = new Map<string, Promise<unknown>>()
 
 function buildCacheKey(url: string, token: string | null): string {
   return `${token ?? 'anonymous'}:${url}`
+}
+
+function splitCacheKey(cacheKey: string): { token: string; url: string } | null {
+  const separatorIndex = cacheKey.indexOf(':')
+  if (separatorIndex <= 0) {
+    return null
+  }
+
+  return {
+    token: cacheKey.slice(0, separatorIndex),
+    url: cacheKey.slice(separatorIndex + 1),
+  }
+}
+
+function toPathname(url: string): string {
+  try {
+    return new URL(url).pathname
+  } catch {
+    return url
+  }
+}
+
+function normalizePrefix(prefix: string): string {
+  if (prefix === '*') {
+    return prefix
+  }
+
+  return prefix.startsWith('/') ? prefix : `/${prefix}`
+}
+
+function shouldInvalidatePath(pathname: string, prefixes: string[]): boolean {
+  const normalizedPath = pathname.endsWith('/') && pathname.length > 1
+    ? pathname.slice(0, -1)
+    : pathname
+
+  return prefixes.some((prefix) => {
+    if (prefix === '*') {
+      return true
+    }
+
+    const normalizedPrefix = normalizePrefix(prefix)
+    const fullPrefix = `${API_BASE_PATH}${normalizedPrefix}`
+    return normalizedPath === fullPrefix || normalizedPath.startsWith(`${fullPrefix}/`)
+  })
+}
+
+function invalidateTokenCache(token: string | null, prefixes: string[]): void {
+  if (prefixes.length === 0) {
+    return
+  }
+
+  if (prefixes.includes('*')) {
+    getResponseCache.clear()
+    inFlightGetRequests.clear()
+    return
+  }
+
+  const tokenKey = token ?? 'anonymous'
+
+  for (const key of getResponseCache.keys()) {
+    const parsed = splitCacheKey(key)
+    if (!parsed || parsed.token !== tokenKey) {
+      continue
+    }
+
+    const pathname = toPathname(parsed.url)
+    if (shouldInvalidatePath(pathname, prefixes)) {
+      getResponseCache.delete(key)
+    }
+  }
+
+  for (const key of inFlightGetRequests.keys()) {
+    const parsed = splitCacheKey(key)
+    if (!parsed || parsed.token !== tokenKey) {
+      continue
+    }
+
+    const pathname = toPathname(parsed.url)
+    if (shouldInvalidatePath(pathname, prefixes)) {
+      inFlightGetRequests.delete(key)
+    }
+  }
+}
+
+function inferMutationInvalidationPrefixes(path: string): string[] {
+  const normalizedPath = path.split('?')[0] ?? path
+
+  if (normalizedPath.startsWith('/auth')) {
+    return ['*']
+  }
+
+  if (normalizedPath.startsWith('/workouts')) {
+    return ['/workouts', '/dashboard/overview', '/progress/overview', '/progress/exercise']
+  }
+
+  if (normalizedPath.startsWith('/body-metrics')) {
+    return ['/body-metrics/history', '/body-metrics/latest', '/dashboard/overview']
+  }
+
+  if (normalizedPath.startsWith('/plans')) {
+    return ['/plans', '/dashboard/overview']
+  }
+
+  if (normalizedPath.startsWith('/exercises')) {
+    return ['/exercises', '/workouts/suggestion', '/progress/overview']
+  }
+
+  if (normalizedPath.startsWith('/progress')) {
+    return ['/progress/overview', '/progress/exercise']
+  }
+
+  if (normalizedPath.startsWith('/gamification')) {
+    return ['/gamification', '/dashboard/overview']
+  }
+
+  return ['*']
+}
+
+export function invalidateApiCache(prefixes: string[] = ['*']): void {
+  const token = getAuthToken()
+  invalidateTokenCache(token, prefixes)
 }
 
 async function performRequest<T>(
@@ -65,7 +198,12 @@ export function clearAuthToken(): void {
   window.localStorage.removeItem(AUTH_TOKEN_KEY)
 }
 
-export async function apiRequest<T>(path: string, method: HttpMethod, body?: unknown): Promise<T> {
+export async function apiRequest<T>(
+  path: string,
+  method: HttpMethod,
+  body?: unknown,
+  options?: ApiRequestOptions,
+): Promise<T> {
   const token = getAuthToken()
   const url = `${API_BASE_URL}${path}`
   const cacheKey = buildCacheKey(url, token)
@@ -102,9 +240,8 @@ export async function apiRequest<T>(path: string, method: HttpMethod, body?: unk
 
   const result = await performRequest<T>(url, method, token, body)
 
-  // Conservative invalidation: mutation success clears cached GET data.
-  getResponseCache.clear()
-  inFlightGetRequests.clear()
+  const invalidatePrefixes = options?.invalidatePrefixes ?? inferMutationInvalidationPrefixes(path)
+  invalidateTokenCache(token, invalidatePrefixes)
 
   return result
 }

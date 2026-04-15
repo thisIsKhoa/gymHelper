@@ -19,6 +19,7 @@ const WORKOUT_ANALYTICS_TTL_MS = 30_000;
 const WORKOUT_SUGGESTION_TTL_MS = 20_000;
 const WORKOUT_HISTORY_DEFAULT_LIMIT = 30;
 const WORKOUT_HISTORY_PREVIEW_ENTRIES_LIMIT = 3;
+const WORKOUT_EXPORT_BATCH_SIZE = 100;
 const COMMON_PROGRESS_WEEKS: ReadonlyArray<number> = [8, 12, 16, 24];
 const COMMON_ANALYTIC_WEEKS: ReadonlyArray<number> = [8, 12, 16, 24];
 
@@ -560,10 +561,6 @@ export async function createWorkoutSession(userId: string, input: CreateWorkoutI
 
   const cacheEntries: Array<{ namespace: string; key: string }> = [
     {
-      namespace: cacheNamespaces.dashboardOverview,
-      key: serializeCacheKey([userId]),
-    },
-    {
       namespace: cacheNamespaces.progressOverview,
       key: serializeCacheKey([userId]),
     },
@@ -594,6 +591,7 @@ export async function createWorkoutSession(userId: string, input: CreateWorkoutI
     }
   }
 
+  invalidateCacheNamespace(cacheNamespaces.dashboardOverview);
   invalidateCacheNamespace(cacheNamespaces.workoutHistory);
   invalidateCacheKeys(cacheEntries);
 
@@ -1026,31 +1024,11 @@ export async function getWorkoutAnalytics(userId: string, weeks = 8) {
   );
 }
 
-export async function exportWorkoutHistoryCsv(userId: string): Promise<string> {
-  const sessions = await prisma.workoutSession.findMany({
-    where: { userId },
-    select: {
-      sessionDate: true,
-      entries: {
-        select: {
-          exerciseName: true,
-          sets: true,
-          reps: true,
-          weightKg: true,
-          rpe: true,
-          restSeconds: true,
-          volume: true,
-          estimated1Rm: true,
-          isCompleted: true,
-        },
-        orderBy: {
-          createdAt: 'asc',
-        },
-      },
-    },
-    orderBy: [{ sessionDate: 'desc' }, { createdAt: 'desc' }],
-  });
+function escapeCsvValue(value: string): string {
+  return `"${value.replaceAll('"', '""')}"`;
+}
 
+export async function* exportWorkoutHistoryCsvLines(userId: string): AsyncGenerator<string> {
   const header = [
     'sessionDate',
     'exerciseName',
@@ -1064,26 +1042,64 @@ export async function exportWorkoutHistoryCsv(userId: string): Promise<string> {
     'isCompleted',
   ];
 
-  const lines = [header.join(',')];
+  yield `${header.join(',')}\n`;
 
-  for (const session of sessions) {
-    for (const entry of session.entries) {
-      const values = [
-        session.sessionDate.toISOString().slice(0, 10),
-        entry.exerciseName,
-        String(entry.sets),
-        String(entry.reps),
-        String(entry.weightKg ?? ''),
-        String(entry.rpe ?? ''),
-        String(entry.restSeconds ?? ''),
-        String(Number(entry.volume.toFixed(2))),
-        String(Number(entry.estimated1Rm.toFixed(2))),
-        String(entry.isCompleted),
-      ].map((value) => `"${String(value).replaceAll('"', '""')}"`);
+  let offset = 0;
 
-      lines.push(values.join(','));
+  while (true) {
+    const sessions = await prisma.workoutSession.findMany({
+      where: { userId },
+      select: {
+        sessionDate: true,
+        entries: {
+          select: {
+            exerciseName: true,
+            sets: true,
+            reps: true,
+            weightKg: true,
+            rpe: true,
+            restSeconds: true,
+            volume: true,
+            estimated1Rm: true,
+            isCompleted: true,
+          },
+          orderBy: {
+            createdAt: 'asc',
+          },
+        },
+      },
+      orderBy: [{ sessionDate: 'desc' }, { createdAt: 'desc' }],
+      skip: offset,
+      take: WORKOUT_EXPORT_BATCH_SIZE,
+    });
+
+    if (sessions.length === 0) {
+      break;
+    }
+
+    for (const session of sessions) {
+      for (const entry of session.entries) {
+        const values = [
+          session.sessionDate.toISOString().slice(0, 10),
+          entry.exerciseName,
+          String(entry.sets),
+          String(entry.reps),
+          String(entry.weightKg ?? ''),
+          String(entry.rpe ?? ''),
+          String(entry.restSeconds ?? ''),
+          String(Number(entry.volume.toFixed(2))),
+          String(Number(entry.estimated1Rm.toFixed(2))),
+          String(entry.isCompleted),
+        ].map((value) => escapeCsvValue(String(value)));
+
+        yield `${values.join(',')}\n`;
+      }
+    }
+
+    offset += sessions.length;
+
+    if (sessions.length < WORKOUT_EXPORT_BATCH_SIZE) {
+      break;
     }
   }
-
-  return `${lines.join('\n')}\n`;
 }

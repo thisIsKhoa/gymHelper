@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Bar,
   BarChart,
@@ -50,6 +51,18 @@ interface WorkoutAnalytics {
   streakDays: number;
 }
 
+interface ProgressOverviewResponse {
+  benchProgressByWeek: Array<{
+    week: string;
+    avgWeightKg: number;
+    maxWeightKg: number;
+    totalVolume: number;
+    maxEstimated1Rm: number;
+  }>;
+  personalRecords: WorkoutRecord[];
+  workoutAnalytics: WorkoutAnalytics;
+}
+
 function formatShortWeek(isoWeek: string) {
   const [year, week] = isoWeek.split("-W");
   if (!week) {
@@ -60,49 +73,66 @@ function formatShortWeek(isoWeek: string) {
 }
 
 export function ProgressPage() {
-  const [library, setLibrary] = useState<ExerciseLibraryItem[]>([]);
   const [selectedExercise, setSelectedExercise] = useState("Bench Press");
   const [weeks, setWeeks] = useState(12);
-  const [points, setPoints] = useState<ExerciseProgressResponse["points"]>([]);
-  const [records, setRecords] = useState<WorkoutRecord[]>([]);
-  const [analytics, setAnalytics] = useState<WorkoutAnalytics | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+
+  const exerciseLibraryQuery = useQuery({
+    queryKey: ["exercise-library"],
+    queryFn: () => apiRequest<ExerciseLibraryItem[]>("/exercises", "GET"),
+    staleTime: 1000 * 60 * 10,
+  });
+
+  const progressOverviewQuery = useQuery({
+    queryKey: ["progress-overview"],
+    queryFn: () =>
+      apiRequest<ProgressOverviewResponse>("/progress/overview", "GET"),
+  });
+
+  const exerciseProgressQuery = useQuery({
+    queryKey: ["progress-exercise", selectedExercise, weeks],
+    queryFn: () =>
+      apiRequest<ExerciseProgressResponse>(
+        `/progress/exercise/${encodeURIComponent(selectedExercise)}?weeks=${weeks}`,
+        "GET",
+      ),
+    enabled: selectedExercise.trim().length > 0,
+  });
+
+  const library = exerciseLibraryQuery.data ?? [];
+  const points = exerciseProgressQuery.data?.points ?? [];
+  const records = progressOverviewQuery.data?.personalRecords ?? [];
+  const analytics = progressOverviewQuery.data?.workoutAnalytics ?? null;
 
   useEffect(() => {
-    async function load() {
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        const [exerciseLibrary, progress, prs, workoutAnalytics] =
-          await Promise.all([
-            apiRequest<ExerciseLibraryItem[]>("/exercises", "GET"),
-            apiRequest<ExerciseProgressResponse>(
-              `/progress/exercise/${encodeURIComponent(selectedExercise)}?weeks=${weeks}`,
-              "GET",
-            ),
-            apiRequest<WorkoutRecord[]>("/workouts/prs", "GET"),
-            apiRequest<WorkoutAnalytics>("/workouts/analytics", "GET"),
-          ]);
-
-        setLibrary(exerciseLibrary);
-        setPoints(progress.points);
-        setRecords(prs);
-        setAnalytics(workoutAnalytics);
-      } catch (loadError) {
-        setError(
-          loadError instanceof Error
-            ? loadError.message
-            : "Failed to load progress data",
-        );
-      } finally {
-        setIsLoading(false);
-      }
+    if (library.length === 0) {
+      return;
     }
 
-    void load();
-  }, [selectedExercise, weeks]);
+    const hasSelectedExercise = library.some(
+      (exercise) => exercise.name === selectedExercise,
+    );
+
+    if (!hasSelectedExercise) {
+      setSelectedExercise(library[0]?.name ?? "Bench Press");
+    }
+  }, [library, selectedExercise]);
+
+  const isLoading =
+    exerciseLibraryQuery.isLoading ||
+    progressOverviewQuery.isLoading ||
+    exerciseProgressQuery.isLoading;
+
+  const loadError =
+    exerciseLibraryQuery.error ||
+    progressOverviewQuery.error ||
+    exerciseProgressQuery.error;
+
+  const error =
+    loadError instanceof Error
+      ? loadError.message
+      : loadError
+        ? "Failed to load progress data"
+        : null;
 
   if (isLoading) {
     return <LoadingState message="Loading progress..." cardCount={3} />;

@@ -25,17 +25,25 @@ export async function createBodyMetric(userId: string, input: CreateBodyMetricIn
     },
   });
 
+  invalidateCacheNamespace(cacheNamespaces.dashboardOverview);
+
   invalidateCacheKeys([
-    {
-      namespace: cacheNamespaces.dashboardOverview,
-      key: serializeCacheKey([userId]),
-    },
     {
       namespace: cacheNamespaces.bodyMetricLatest,
       key: serializeCacheKey([userId]),
     },
+    {
+      namespace: cacheNamespaces.bodyMetricHistory,
+      key: serializeCacheKey([
+        userId,
+        null,
+        null,
+        BODY_METRIC_HISTORY_DEFAULT_LIMIT,
+        null,
+        0,
+      ]),
+    },
   ]);
-  invalidateCacheNamespace(cacheNamespaces.bodyMetricHistory);
 
   return metric;
 }

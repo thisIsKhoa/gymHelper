@@ -120,19 +120,44 @@ export function BodyMetricsPage() {
     event.preventDefault();
     setStatus(null);
 
+    const payload = {
+      loggedAt: form.loggedAt,
+      weightKg: form.weightKg,
+      bodyFatPct: form.bodyFatPct === "" ? undefined : Number(form.bodyFatPct),
+      muscleMassKg:
+        form.muscleMassKg === "" ? undefined : Number(form.muscleMassKg),
+      notes: form.notes.trim() ? form.notes.trim() : undefined,
+    };
+
+    const optimisticId = `optimistic-${crypto.randomUUID()}`;
+    const optimisticPoint: BodyMetricPoint = {
+      id: optimisticId,
+      loggedAt: new Date(payload.loggedAt).toISOString(),
+      weightKg: payload.weightKg,
+      bodyFatPct: payload.bodyFatPct,
+      muscleMassKg: payload.muscleMassKg,
+      notes: payload.notes,
+    };
+
+    setHistory((current) => sortByLoggedAtAsc([...current, optimisticPoint]));
+
     try {
-      await apiRequest("/body-metrics", "POST", {
-        loggedAt: form.loggedAt,
-        weightKg: form.weightKg,
-        bodyFatPct:
-          form.bodyFatPct === "" ? undefined : Number(form.bodyFatPct),
-        muscleMassKg:
-          form.muscleMassKg === "" ? undefined : Number(form.muscleMassKg),
-        notes: form.notes.trim() ? form.notes.trim() : undefined,
-      });
+      const saved = await apiRequest<BodyMetricPoint>(
+        "/body-metrics",
+        "POST",
+        payload,
+      );
+
+      setHistory((current) =>
+        sortByLoggedAtAsc(
+          current.map((point) => (point.id === optimisticId ? saved : point)),
+        ),
+      );
       setStatus("Body metrics saved.");
-      await load();
     } catch (submitError) {
+      setHistory((current) =>
+        current.filter((point) => point.id !== optimisticId),
+      );
       setStatus(
         submitError instanceof Error
           ? submitError.message

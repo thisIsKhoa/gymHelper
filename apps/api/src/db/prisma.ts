@@ -27,6 +27,11 @@ function withConnectionTuning(databaseUrl: string): string {
 
 const tunedDatabaseUrl = withConnectionTuning(env.DATABASE_URL);
 
+const prismaLogLevels: Array<'query' | 'error' | 'warn'> =
+  env.NODE_ENV === 'development'
+    ? ['query', 'error', 'warn']
+    : ['error', 'warn'];
+
 export const prisma =
   global.prismaClient ??
   new PrismaClient({
@@ -35,7 +40,7 @@ export const prisma =
         url: tunedDatabaseUrl,
       },
     },
-    log: ['query', 'error', 'warn'],
+    log: prismaLogLevels,
   });
 
 if (process.env.NODE_ENV !== 'production') {

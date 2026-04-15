@@ -1,5 +1,6 @@
 import { prisma } from '../../db/prisma.js';
 import { cacheNamespaces, readThroughCache, serializeCacheKey } from '../../utils/cache.js';
+import { getWorkoutAnalytics } from '../workout/workout.service.js';
 
 const PROGRESS_EXERCISE_TTL_MS = 300_000;
 const PROGRESS_OVERVIEW_TTL_MS = 180_000;
@@ -88,7 +89,7 @@ export async function getProgressOverview(userId: string) {
     serializeCacheKey([userId]),
     PROGRESS_OVERVIEW_TTL_MS,
     async () => {
-      const [bench, prs] = await Promise.all([
+      const [bench, prs, analytics] = await Promise.all([
         getExerciseProgressByWeek(userId, 'Bench Press', 16),
         prisma.personalRecord.findMany({
           where: { userId },
@@ -100,11 +101,13 @@ export async function getProgressOverview(userId: string) {
           },
           orderBy: [{ bestWeightKg: 'desc' }, { bestVolume: 'desc' }],
         }),
+        getWorkoutAnalytics(userId, 12),
       ]);
 
       return {
         benchProgressByWeek: bench.points,
         personalRecords: prs,
+        workoutAnalytics: analytics,
       };
     },
   );

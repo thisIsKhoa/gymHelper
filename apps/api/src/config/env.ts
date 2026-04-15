@@ -6,6 +6,10 @@ config();
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().default(4000),
+  RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
+  AUTH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(40),
+  WORKOUT_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(120),
+  HTTP_SLOW_REQUEST_MS: z.coerce.number().int().positive().default(1_000),
   DATABASE_URL: z.string().min(1).default('postgresql://gymhelper:gymhelper@localhost:5432/gymhelper?schema=public'),
   REDIS_URL: z.string().min(1).optional(),
   REDIS_KEY_PREFIX: z.string().default('gymhelper:'),

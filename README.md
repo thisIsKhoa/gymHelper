@@ -106,19 +106,23 @@ Local URLs:
 
 Defined in `apps/api/src/config/env.ts`.
 
-| Variable                | Required | Description                              |
-| ----------------------- | -------- | ---------------------------------------- |
-| `PORT`                  | No       | API port (default: `4000`)               |
-| `NODE_ENV`              | No       | `development`, `test`, or `production`   |
-| `DATABASE_URL`          | Yes      | PostgreSQL connection string             |
-| `REDIS_URL`             | Optional | Enables BullMQ queue + worker            |
-| `REDIS_KEY_PREFIX`      | No       | Redis key namespace prefix               |
-| `JWT_SECRET`            | Yes      | JWT signing key (min 16 chars)           |
-| `JWT_EXPIRES_IN`        | No       | JWT expiration (default `7d`)            |
-| `CORS_ORIGIN`           | Yes      | Allowed web origin                       |
-| `AUTH_COOKIE_SAME_SITE` | Optional | Set `none` for cross-site cookies        |
-| `AUTH_COOKIE_SECURE`    | Optional | Set `true` with HTTPS/cross-site cookies |
-| `ADMIN_EMAILS`          | Optional | Comma-separated admin account list       |
+| Variable                 | Required | Description                              |
+| ------------------------ | -------- | ---------------------------------------- |
+| `PORT`                   | No       | API port (default: `4000`)               |
+| `NODE_ENV`               | No       | `development`, `test`, or `production`   |
+| `RATE_LIMIT_WINDOW_MS`   | No       | Rate-limit window in milliseconds        |
+| `AUTH_RATE_LIMIT_MAX`    | No       | Max auth requests per window             |
+| `WORKOUT_RATE_LIMIT_MAX` | No       | Max workout requests per window          |
+| `HTTP_SLOW_REQUEST_MS`   | No       | Slow-request warning threshold in ms     |
+| `DATABASE_URL`           | Yes      | PostgreSQL connection string             |
+| `REDIS_URL`              | Optional | Enables BullMQ queue + worker            |
+| `REDIS_KEY_PREFIX`       | No       | Redis key namespace prefix               |
+| `JWT_SECRET`             | Yes      | JWT signing key (min 16 chars)           |
+| `JWT_EXPIRES_IN`         | No       | JWT expiration (default `7d`)            |
+| `CORS_ORIGIN`            | Yes      | Allowed web origin                       |
+| `AUTH_COOKIE_SAME_SITE`  | Optional | Set `none` for cross-site cookies        |
+| `AUTH_COOKIE_SECURE`     | Optional | Set `true` with HTTPS/cross-site cookies |
+| `ADMIN_EMAILS`           | Optional | Comma-separated admin account list       |
 
 ## Scripts
 
@@ -164,12 +168,13 @@ All API routes are prefixed with `/api/v1`.
 - Body Metrics: `/body-metrics`, `/body-metrics/history`, `/body-metrics/latest`
 - Plans: `/plans`, `/plans/session-template`, `/plans/:planId`, `/plans/:planId/duplicate`
 - Progress: `/progress/overview`, `/progress/exercise/:exerciseName`
-- Dashboard: `/dashboard/overview`
+- `GET /progress/overview` returns bench trend, personal records, and workout analytics.
+- Dashboard: `/dashboard/overview` (`?weeks=4..52`, default `16`)
 - Gamification: `/gamification/profile`, `/gamification/notifications/consume`, `/gamification/activity/ping`
 
 ## Realtime Events
 
-- Client emit: `user:join`, `user:leave`, `timer:start`, `timer:stop`
+- Client emit: `timer:start`, `timer:stop` (socket auth is handshake-based)
 - Server emit: `timer:tick`, `timer:done`, `timer:stopped`, `achievement:unlocked`, `muscle:levelup`
 
 ## Testing

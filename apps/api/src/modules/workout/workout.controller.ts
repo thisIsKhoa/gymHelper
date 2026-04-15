@@ -1,3 +1,5 @@
+import { once } from 'node:events';
+
 import type { NextFunction, Request, Response } from 'express';
 
 import { HttpError } from '../../utils/http-error.js';
@@ -10,7 +12,7 @@ import {
 import {
   compareWorkoutSessions,
   createWorkoutSession,
-  exportWorkoutHistoryCsv,
+  exportWorkoutHistoryCsvLines,
   getPersonalRecords,
   getWorkoutAnalytics,
   getWorkoutHistory,
@@ -84,14 +86,25 @@ export async function analytics(req: Request, res: Response, next: NextFunction)
 
 export async function exportCsv(req: Request, res: Response, next: NextFunction) {
   try {
-    const csv = await exportWorkoutHistoryCsv(req.user!.id);
     const dateTag = new Date().toISOString().slice(0, 10);
 
-    res
-      .status(200)
-      .setHeader('Content-Type', 'text/csv; charset=utf-8')
-      .setHeader('Content-Disposition', `attachment; filename="workouts-${dateTag}.csv"`)
-      .send(csv);
+    res.status(200);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="workouts-${dateTag}.csv"`);
+
+    for await (const line of exportWorkoutHistoryCsvLines(req.user!.id)) {
+      if (res.destroyed) {
+        break;
+      }
+
+      if (!res.write(line)) {
+        await once(res, 'drain');
+      }
+    }
+
+    if (!res.destroyed) {
+      res.end();
+    }
   } catch (error) {
     next(error);
   }

@@ -1,7 +1,7 @@
 import { AchievementCode, GamificationNotificationType, MuscleGroup, MuscleSkill, Prisma } from '@prisma/client';
 
 import { prisma } from '../../db/prisma.js';
-import { cacheNamespaces, invalidateCacheKey, readThroughCache, serializeCacheKey } from '../../utils/cache.js';
+import { cacheNamespaces, invalidateCacheKey, invalidateCacheNamespace, readThroughCache, serializeCacheKey } from '../../utils/cache.js';
 import {
   ACHIEVEMENT_DEFINITIONS,
   BODYWEIGHT_REP_EXP,
@@ -1079,7 +1079,7 @@ export async function processWorkoutGamificationJob(payload: GamificationJobPayl
     await Promise.allSettled(realtimePublishes);
   }
 
-  invalidateCacheKey(cacheNamespaces.dashboardOverview, serializeCacheKey([payload.userId]));
+  invalidateCacheNamespace(cacheNamespaces.dashboardOverview);
   invalidateCacheKey(cacheNamespaces.gamificationProfile, toProfileCacheKey(payload.userId));
 }
 
