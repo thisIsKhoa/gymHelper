@@ -1,9 +1,9 @@
 import type { CookieOptions, NextFunction, Request, Response } from 'express';
 
 import { env } from '../../config/env.js';
-import { getProfile, loginUser, registerUser } from './auth.service.js';
+import { getProfile, loginUser, registerUser, resetPassword as resetPasswordService } from './auth.service.js';
 import { AUTH_ACCESS_COOKIE } from './auth.constants.js';
-import { loginSchema, registerSchema } from './auth.schemas.js';
+import { loginSchema, registerSchema, resetPasswordSchema } from './auth.schemas.js';
 
 type CookieSameSite = NonNullable<CookieOptions['sameSite']>;
 
@@ -85,7 +85,7 @@ export async function register(req: Request, res: Response, next: NextFunction) 
     const input = registerSchema.parse(req.body);
     const result = await registerUser(input);
     setAuthCookie(res, result.token);
-    res.status(201).json({ user: result.user });
+    res.status(201).json({ user: result.user, token: result.token, recoveryCode: result.recoveryCode });
   } catch (error) {
     next(error);
   }
@@ -96,7 +96,7 @@ export async function login(req: Request, res: Response, next: NextFunction) {
     const input = loginSchema.parse(req.body);
     const result = await loginUser(input);
     setAuthCookie(res, result.token);
-    res.status(200).json({ user: result.user });
+    res.status(200).json({ user: result.user, token: result.token });
   } catch (error) {
     next(error);
   }
@@ -111,6 +111,16 @@ export async function me(req: Request, res: Response, next: NextFunction) {
   try {
     const profile = await getProfile(req.user!.id);
     res.status(200).json(profile);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function resetPassword(req: Request, res: Response, next: NextFunction) {
+  try {
+    const input = resetPasswordSchema.parse(req.body);
+    await resetPasswordService(input);
+    res.status(200).json({ message: 'Password reset successfully' });
   } catch (error) {
     next(error);
   }

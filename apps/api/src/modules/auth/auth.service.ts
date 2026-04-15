@@ -4,7 +4,7 @@ import jwt from 'jsonwebtoken';
 import { prisma } from '../../db/prisma.js';
 import { env } from '../../config/env.js';
 import { HttpError } from '../../utils/http-error.js';
-import type { LoginInput, RegisterInput } from './auth.schemas.js';
+import type { LoginInput, RegisterInput, ResetPasswordInput } from './auth.schemas.js';
 
 function signToken(user: { id: string; email: string }): string {
   const expiresIn = env.JWT_EXPIRES_IN as jwt.SignOptions['expiresIn'];
@@ -25,12 +25,14 @@ export async function registerUser(input: RegisterInput) {
   }
 
   const passwordHash = await bcrypt.hash(input.password, 10);
+  const recoveryCode = Math.floor(100000 + Math.random() * 900000).toString();
 
   const user = await prisma.user.create({
     data: {
       email: input.email,
       name: input.name,
       passwordHash,
+      recoveryCode,
       level: input.level,
       goal: input.goal,
     },
@@ -46,6 +48,7 @@ export async function registerUser(input: RegisterInput) {
 
   return {
     token: signToken({ id: user.id, email: user.email }),
+    recoveryCode,
     user,
   };
 }
@@ -96,4 +99,20 @@ export async function getProfile(userId: string) {
   }
 
   return user;
+}
+
+export async function resetPassword(input: ResetPasswordInput) {
+  const user = await prisma.user.findUnique({
+    where: { email: input.email },
+  });
+
+  if (!user || user.recoveryCode !== input.recoveryCode) {
+    throw new HttpError(401, 'Invalid email or recovery code');
+  }
+
+  const passwordHash = await bcrypt.hash(input.newPassword, 10);
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { passwordHash },
+  });
 }
