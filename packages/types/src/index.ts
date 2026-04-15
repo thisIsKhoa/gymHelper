@@ -13,6 +13,7 @@ export interface ExerciseInput {
 }
 
 export interface WorkoutSessionInput {
+  idempotencyKey?: string;
   startedAt: string;
   endedAt?: string;
   timezoneOffsetMinutes?: number;

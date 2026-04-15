@@ -10,7 +10,17 @@ interface JwtPayload {
   email: string;
 }
 
-function readCookieValue(cookieHeader: string | undefined, name: string): string | null {
+export interface AuthUser {
+  id: string;
+  email: string;
+}
+
+interface AuthHeaderSource {
+  cookie?: string;
+  authorization?: string;
+}
+
+export function readCookieValue(cookieHeader: string | undefined, name: string): string | null {
   if (!cookieHeader) {
     return null;
   }
@@ -29,13 +39,13 @@ function readCookieValue(cookieHeader: string | undefined, name: string): string
   return null;
 }
 
-function resolveAuthToken(req: Request): string | null {
-  const cookieToken = readCookieValue(req.headers.cookie, AUTH_ACCESS_COOKIE);
+export function resolveAuthTokenFromHeaders(headers: AuthHeaderSource): string | null {
+  const cookieToken = readCookieValue(headers.cookie, AUTH_ACCESS_COOKIE);
   if (cookieToken) {
     return cookieToken;
   }
 
-  const authHeader = req.headers.authorization;
+  const authHeader = headers.authorization;
   const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
 
   if (bearerToken) {
@@ -43,6 +53,32 @@ function resolveAuthToken(req: Request): string | null {
   }
 
   return null;
+}
+
+export function resolveAuthToken(req: Request): string | null {
+  return resolveAuthTokenFromHeaders({
+    cookie: req.headers.cookie,
+    authorization: req.headers.authorization,
+  });
+}
+
+export function verifyAuthToken(token: string): AuthUser | null {
+  try {
+    const payload = jwt.verify(token, env.JWT_SECRET) as JwtPayload;
+    const userId = typeof payload.sub === 'string' && payload.sub.length > 0 ? payload.sub : null;
+    const userEmail = typeof payload.email === 'string' ? payload.email : '';
+
+    if (!userId || !userEmail) {
+      return null;
+    }
+
+    return {
+      id: userId,
+      email: userEmail,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function requireAuth(req: Request, _res: Response, next: NextFunction): void {
@@ -53,24 +89,14 @@ export function requireAuth(req: Request, _res: Response, next: NextFunction): v
     return;
   }
 
-  try {
-    const payload = jwt.verify(token, env.JWT_SECRET) as JwtPayload;
-    const userId = typeof payload.sub === 'string' && payload.sub.length > 0 ? payload.sub : null;
-    const userEmail = typeof payload.email === 'string' ? payload.email : '';
-
-    if (!userId || !userEmail) {
-      next(new HttpError(401, 'Invalid or expired token'));
-      return;
-    }
-
-    req.user = {
-      id: userId,
-      email: userEmail,
-    };
-    next();
-  } catch {
+  const user = verifyAuthToken(token);
+  if (!user) {
     next(new HttpError(401, 'Invalid or expired token'));
+    return;
   }
+
+  req.user = user;
+  next();
 }
 
 export function requireAdmin(req: Request, _res: Response, next: NextFunction): void {

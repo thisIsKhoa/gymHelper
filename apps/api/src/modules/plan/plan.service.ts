@@ -26,6 +26,11 @@ function normalizeOptionalPositiveInt(value: unknown): number | undefined {
   return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : undefined;
 }
 
+function normalizeOptionalText(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  return normalized ? normalized : undefined;
+}
+
 function toSessionPlanExercises(rawExercises: Prisma.JsonValue): SessionPlanExercise[] {
   if (!Array.isArray(rawExercises)) {
     return [];
@@ -93,6 +98,7 @@ export async function createTrainingPlan(userId: string, input: CreatePlanInput)
     data: {
       userId,
       name: input.name,
+      description: normalizeOptionalText(input.description),
       goal: input.goal ?? 'MUSCLE_GAIN',
       level: input.level ?? 'INTERMEDIATE',
       days: {
@@ -139,6 +145,7 @@ export async function updateTrainingPlan(userId: string, planId: string, input: 
       where: { id: planId },
       data: {
         name: input.name,
+        description: normalizeOptionalText(input.description),
       },
     });
 
@@ -184,6 +191,7 @@ export async function duplicateTrainingPlan(userId: string, planId: string, name
     data: {
       userId,
       name: name ?? `${existing.name} (Copy)`,
+      description: existing.description,
       goal: existing.goal,
       level: existing.level,
       days: {

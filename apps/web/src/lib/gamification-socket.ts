@@ -1,10 +1,6 @@
 import { io, type Socket } from 'socket.io-client';
 
-import { apiRequest } from './api.ts';
-
-interface AuthMeResponse {
-  id: string;
-}
+import { getAuthToken } from './api.ts';
 
 interface AchievementUnlockedPayload {
   code: string;
@@ -21,7 +17,6 @@ interface MuscleLevelUpPayload {
 }
 
 let socket: Socket | null = null;
-let activeUserId: string | null = null;
 let connectingPromise: Promise<Socket | null> | null = null;
 
 function getSocket(): Socket {
@@ -36,13 +31,32 @@ function getSocket(): Socket {
   return socket;
 }
 
-async function resolveCurrentUserId(): Promise<string | null> {
-  try {
-    const result = await apiRequest<AuthMeResponse>('/auth/me', 'GET');
-    return result.id;
-  } catch {
-    return null;
+async function connectSocket(socketInstance: Socket): Promise<Socket | null> {
+  if (socketInstance.connected) {
+    return socketInstance;
   }
+
+  return new Promise((resolve) => {
+    const handleConnect = () => {
+      cleanup();
+      resolve(socketInstance);
+    };
+
+    const handleConnectError = () => {
+      cleanup();
+      resolve(null);
+    };
+
+    const cleanup = () => {
+      socketInstance.off('connect', handleConnect);
+      socketInstance.off('connect_error', handleConnectError);
+    };
+
+    socketInstance.once('connect', handleConnect);
+    socketInstance.once('connect_error', handleConnectError);
+
+    socketInstance.connect();
+  });
 }
 
 export async function connectGamificationSocket(): Promise<Socket | null> {
@@ -51,25 +65,12 @@ export async function connectGamificationSocket(): Promise<Socket | null> {
   }
 
   connectingPromise = (async () => {
-    const userId = await resolveCurrentUserId();
-    if (!userId) {
-      return null;
-    }
-
     const socketInstance = getSocket();
+    socketInstance.auth = {
+      token: getAuthToken() ?? undefined,
+    };
 
-    if (!socketInstance.connected) {
-      socketInstance.connect();
-    }
-
-    if (activeUserId && activeUserId !== userId) {
-      socketInstance.emit('user:leave', { userId: activeUserId });
-    }
-
-    activeUserId = userId;
-    socketInstance.emit('user:join', { userId });
-
-    return socketInstance;
+    return connectSocket(socketInstance);
   })().finally(() => {
     connectingPromise = null;
   });
@@ -101,10 +102,5 @@ export function disconnectGamificationSocket(): void {
     return;
   }
 
-  if (activeUserId) {
-    socketInstance.emit('user:leave', { userId: activeUserId });
-  }
-
-  activeUserId = null;
   socketInstance.disconnect();
 }

@@ -636,58 +636,81 @@ async function applyMuscleExpGain(
 async function computeAchievementProgress(
   tx: Tx,
   userId: string,
+  codes: ReadonlySet<AchievementCode>,
 ): Promise<Map<AchievementCode, number>> {
+  const needsPersistedStats =
+    codes.has(AchievementCode.VOLUME_SESSION_1000)
+    || codes.has(AchievementCode.LIFETIME_VOLUME_5000000)
+    || codes.has(AchievementCode.CLUB_100);
+  const needsSessions =
+    codes.has(AchievementCode.DAWN_WARRIOR)
+    || codes.has(AchievementCode.STREAK_30_DAYS)
+    || codes.has(AchievementCode.OPEN_APP_7_DAYS_NO_WORKOUT);
+  const needsPrWeeks = codes.has(AchievementCode.PR_STREAK_3_IN_3_WEEKS);
+  const needsRestAverage = codes.has(AchievementCode.REST_MONSTER);
+  const needsAppOpenRows = codes.has(AchievementCode.OPEN_APP_7_DAYS_NO_WORKOUT);
+
   const [sessions, prWeeks, restAverageRows, appOpenRows, persistedStats] = await Promise.all([
-    tx.workoutSession.findMany({
-      where: { userId },
-      select: {
-        sessionDate: true,
-        startedAt: true,
-        timezoneOffsetMinutes: true,
-      },
-      orderBy: {
-        sessionDate: 'asc',
-      },
-    }),
-    tx.personalRecordEvent.findMany({
-      where: { userId },
-      select: {
-        isoWeek: true,
-      },
-      distinct: ['isoWeek'],
-      orderBy: {
-        isoWeek: 'asc',
-      },
-    }),
-    tx.$queryRaw<Array<{ max_avg_rest: number | null }>>`
-      SELECT
-        MAX(session_avg.avg_rest) AS max_avg_rest
-      FROM (
-        SELECT
-          AVG(COALESCE(we."restSeconds", 0)) AS avg_rest
-        FROM "WorkoutEntry" AS we
-        INNER JOIN "WorkoutSession" AS ws ON ws."id" = we."sessionId"
-        WHERE ws."userId" = ${userId}
-        GROUP BY we."sessionId"
-      ) AS session_avg
-    `,
-    tx.userDailyAppOpen.findMany({
-      where: { userId },
-      select: {
-        activityDate: true,
-      },
-      orderBy: {
-        activityDate: 'asc',
-      },
-    }),
-    tx.userGamificationStat.findUnique({
-      where: { userId },
-      select: {
-        totalVolumeLifted: true,
-        maxSessionVolume: true,
-        maxWeightKg: true,
-      },
-    }),
+    needsSessions
+      ? tx.workoutSession.findMany({
+          where: { userId },
+          select: {
+            sessionDate: true,
+            startedAt: true,
+            timezoneOffsetMinutes: true,
+          },
+          orderBy: {
+            sessionDate: 'asc',
+          },
+        })
+      : Promise.resolve([] as Array<{ sessionDate: Date; startedAt: Date; timezoneOffsetMinutes: number | null }>),
+    needsPrWeeks
+      ? tx.personalRecordEvent.findMany({
+          where: { userId },
+          select: {
+            isoWeek: true,
+          },
+          distinct: ['isoWeek'],
+          orderBy: {
+            isoWeek: 'asc',
+          },
+        })
+      : Promise.resolve([] as Array<{ isoWeek: string }>),
+    needsRestAverage
+      ? tx.$queryRaw<Array<{ max_avg_rest: number | null }>>`
+          SELECT
+            MAX(session_avg.avg_rest) AS max_avg_rest
+          FROM (
+            SELECT
+              AVG(COALESCE(we."restSeconds", 0)) AS avg_rest
+            FROM "WorkoutEntry" AS we
+            INNER JOIN "WorkoutSession" AS ws ON ws."id" = we."sessionId"
+            WHERE ws."userId" = ${userId}
+            GROUP BY we."sessionId"
+          ) AS session_avg
+        `
+      : Promise.resolve([] as Array<{ max_avg_rest: number | null }>),
+    needsAppOpenRows
+      ? tx.userDailyAppOpen.findMany({
+          where: { userId },
+          select: {
+            activityDate: true,
+          },
+          orderBy: {
+            activityDate: 'asc',
+          },
+        })
+      : Promise.resolve([] as Array<{ activityDate: Date }>),
+    needsPersistedStats
+      ? tx.userGamificationStat.findUnique({
+          where: { userId },
+          select: {
+            totalVolumeLifted: true,
+            maxSessionVolume: true,
+            maxWeightKg: true,
+          },
+        })
+      : Promise.resolve(null),
   ]);
 
   const lifetimeVolume = Number((persistedStats?.totalVolumeLifted ?? 0).toFixed(2));
@@ -709,14 +732,30 @@ async function computeAchievementProgress(
   );
 
   const progress = new Map<AchievementCode, number>();
-  progress.set(AchievementCode.VOLUME_SESSION_1000, maxSessionVolume);
-  progress.set(AchievementCode.LIFETIME_VOLUME_5000000, lifetimeVolume);
-  progress.set(AchievementCode.DAWN_WARRIOR, hasDawnSession ? 1 : 0);
-  progress.set(AchievementCode.STREAK_30_DAYS, workoutStreak);
-  progress.set(AchievementCode.PR_STREAK_3_IN_3_WEEKS, prWeekStreak);
-  progress.set(AchievementCode.CLUB_100, maxWeightKg);
-  progress.set(AchievementCode.OPEN_APP_7_DAYS_NO_WORKOUT, noWorkoutOpenStreak);
-  progress.set(AchievementCode.REST_MONSTER, maxAverageRestSeconds);
+  if (codes.has(AchievementCode.VOLUME_SESSION_1000)) {
+    progress.set(AchievementCode.VOLUME_SESSION_1000, maxSessionVolume);
+  }
+  if (codes.has(AchievementCode.LIFETIME_VOLUME_5000000)) {
+    progress.set(AchievementCode.LIFETIME_VOLUME_5000000, lifetimeVolume);
+  }
+  if (codes.has(AchievementCode.DAWN_WARRIOR)) {
+    progress.set(AchievementCode.DAWN_WARRIOR, hasDawnSession ? 1 : 0);
+  }
+  if (codes.has(AchievementCode.STREAK_30_DAYS)) {
+    progress.set(AchievementCode.STREAK_30_DAYS, workoutStreak);
+  }
+  if (codes.has(AchievementCode.PR_STREAK_3_IN_3_WEEKS)) {
+    progress.set(AchievementCode.PR_STREAK_3_IN_3_WEEKS, prWeekStreak);
+  }
+  if (codes.has(AchievementCode.CLUB_100)) {
+    progress.set(AchievementCode.CLUB_100, maxWeightKg);
+  }
+  if (codes.has(AchievementCode.OPEN_APP_7_DAYS_NO_WORKOUT)) {
+    progress.set(AchievementCode.OPEN_APP_7_DAYS_NO_WORKOUT, noWorkoutOpenStreak);
+  }
+  if (codes.has(AchievementCode.REST_MONSTER)) {
+    progress.set(AchievementCode.REST_MONSTER, maxAverageRestSeconds);
+  }
 
   return progress;
 }
@@ -762,7 +801,8 @@ async function upsertLifetimeVolumeAchievement(
   ]);
 
   const progressValue = Number((stats?.totalVolumeLifted ?? 0).toFixed(2));
-  const isUnlocked = progressValue >= definition.targetValue;
+  const unlockedByProgress = progressValue >= definition.targetValue;
+  const isUnlocked = Boolean(existing?.isUnlocked || unlockedByProgress);
   const unlockedAt = isUnlocked ? (existing?.unlockedAt ?? new Date()) : null;
 
   await tx.userAchievement.upsert({
@@ -804,15 +844,23 @@ async function upsertAchievements(
   tx: Tx,
   userId: string,
 ): Promise<UnlockedAchievementNotification[]> {
-  const [existingRows, progress, lifetimeUnlocked] = await Promise.all([
+  const [existingRows, lifetimeUnlocked] = await Promise.all([
     tx.userAchievement.findMany({
       where: { userId },
     }),
-    computeAchievementProgress(tx, userId),
     upsertLifetimeVolumeAchievement(tx, userId),
   ]);
 
   const existingByCode = new Map(existingRows.map((row) => [row.code, row]));
+  const pendingCodes = new Set<AchievementCode>(
+    ACHIEVEMENT_DEFINITIONS
+      .filter((definition) => definition.code !== AchievementCode.LIFETIME_VOLUME_5000000)
+      .filter((definition) => !existingByCode.get(definition.code)?.isUnlocked)
+      .map((definition) => definition.code),
+  );
+  const progress = pendingCodes.size > 0
+    ? await computeAchievementProgress(tx, userId, pendingCodes)
+    : new Map<AchievementCode, number>();
   const now = new Date();
   const unlockedNotifications: UnlockedAchievementNotification[] = lifetimeUnlocked
     ? [lifetimeUnlocked]
@@ -823,9 +871,22 @@ async function upsertAchievements(
       continue;
     }
 
+    const existing = existingByCode.get(definition.code);
+
+    if (existing?.isUnlocked) {
+      if (existing.targetValue !== definition.targetValue) {
+        await tx.userAchievement.update({
+          where: { id: existing.id },
+          data: {
+            targetValue: definition.targetValue,
+          },
+        });
+      }
+      continue;
+    }
+
     const progressValue = Number((progress.get(definition.code) ?? 0).toFixed(2));
     const isUnlocked = progressValue >= definition.targetValue;
-    const existing = existingByCode.get(definition.code);
     const unlockedAt = isUnlocked ? existing?.unlockedAt ?? now : null;
 
     if (!existing) {
@@ -921,7 +982,6 @@ export async function processWorkoutGamificationJob(payload: GamificationJobPayl
       return {
         skipped: true,
         levelUps: [] as Array<{ skill: MuscleSkill; level: number; title: string; message: string }>,
-        unlockedAchievements: [] as UnlockedAchievementNotification[],
       };
     }
 
@@ -978,18 +1038,17 @@ export async function processWorkoutGamificationJob(payload: GamificationJobPayl
       });
     }
 
-    const unlockedAchievements = await upsertAchievements(tx, payload.userId);
-
     return {
       skipped: false,
       levelUps,
-      unlockedAchievements,
     };
   });
 
   if (transactionResult.skipped) {
     return;
   }
+
+  const unlockedAchievements = await prisma.$transaction(async (tx) => upsertAchievements(tx, payload.userId));
 
   const realtimePublishes = [
     ...transactionResult.levelUps.map((item) =>
@@ -1003,7 +1062,7 @@ export async function processWorkoutGamificationJob(payload: GamificationJobPayl
           message: item.message,
         },
       })),
-    ...transactionResult.unlockedAchievements.map((item) =>
+    ...unlockedAchievements.map((item) =>
       publishGamificationRealtimeEvent({
         type: 'achievement:unlocked',
         userId: payload.userId,
@@ -1035,7 +1094,7 @@ export async function runWorkoutGamificationPipeline(userId: string, payload: Wo
 export async function recordDailyAppOpen(userId: string, at: Date = new Date()): Promise<void> {
   const activityDate = dateOnlyUtc(at);
 
-  const unlockedAchievements = await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx) => {
     await tx.userDailyAppOpen.upsert({
       where: {
         userId_activityDate: {
@@ -1049,9 +1108,9 @@ export async function recordDailyAppOpen(userId: string, at: Date = new Date()):
         activityDate,
       },
     });
-
-    return upsertAchievements(tx, userId);
   });
+
+  const unlockedAchievements = await prisma.$transaction(async (tx) => upsertAchievements(tx, userId));
 
   if (unlockedAchievements.length > 0) {
     await Promise.allSettled(

@@ -22,6 +22,12 @@ const WORKOUT_HISTORY_PREVIEW_ENTRIES_LIMIT = 3;
 const COMMON_PROGRESS_WEEKS: ReadonlyArray<number> = [8, 12, 16, 24];
 const COMMON_ANALYTIC_WEEKS: ReadonlyArray<number> = [8, 12, 16, 24];
 
+type WorkoutSessionWithEntries = Prisma.WorkoutSessionGetPayload<{
+  include: {
+    entries: true;
+  };
+}>;
+
 export function calculateVolume(sets: number, reps: number, weightKg?: number): number {
   if (!weightKg) {
     return 0;
@@ -194,41 +200,98 @@ async function upsertPersonalRecord(
   }
 }
 
+function isUniqueConstraintError(error: unknown, expectedFields: readonly string[]): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) {
+    return false;
+  }
+
+  if (error.code !== 'P2002') {
+    return false;
+  }
+
+  const targetRaw = (error.meta as { target?: unknown } | undefined)?.target;
+  const target = Array.isArray(targetRaw)
+    ? targetRaw.map((value) => String(value))
+    : typeof targetRaw === 'string'
+      ? [targetRaw]
+      : [];
+
+  return expectedFields.every((field) => target.some((value) => value.includes(field)));
+}
+
 export async function createWorkoutSession(userId: string, input: CreateWorkoutInput) {
+  const idempotencyKey = input.idempotencyKey?.trim() ? input.idempotencyKey.trim() : null;
   const timezoneOffsetMinutes = typeof input.timezoneOffsetMinutes === 'number'
     ? input.timezoneOffsetMinutes
     : null;
   const sessionDate = timezoneOffsetMinutes !== null
     ? toSessionDateOnlyInTimezone(input.startedAt, timezoneOffsetMinutes)
     : toSessionDateOnly(input.sessionDate);
-  const sessionDateNext = nextUtcDate(sessionDate);
   const endedAt = input.endedAt ?? new Date();
   const normalizedNotes = input.notes?.trim() ? input.notes.trim() : undefined;
   const sessionIsoWeek = toIsoWeek(sessionDate);
 
-  const session = await prisma.$transaction(async (tx) => {
-    const existingSession = await tx.workoutSession.findFirst({
-      where: {
-        userId,
-        sessionDate: {
-          gte: sessionDate,
-          lt: sessionDateNext,
-        },
-      },
-      select: {
-        id: true,
-        startedAt: true,
-        endedAt: true,
-        totalVolume: true,
-        timezoneOffsetMinutes: true,
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+  let wasReplay = false;
 
-    const sessionRecord = existingSession
-      ? await tx.workoutSession.update({
+  let session: WorkoutSessionWithEntries | null = null;
+
+  try {
+    session = await prisma.$transaction(async (tx) => {
+      if (idempotencyKey) {
+        const existingRequest = await tx.workoutRequestLog.findUnique({
+          where: {
+            userId_idempotencyKey: {
+              userId,
+              idempotencyKey,
+            },
+          },
+          select: {
+            sessionId: true,
+          },
+        });
+
+        if (existingRequest) {
+          const existingSessionFromRequest = await tx.workoutSession.findFirst({
+            where: {
+              id: existingRequest.sessionId,
+              userId,
+            },
+            include: {
+              entries: {
+                orderBy: {
+                  createdAt: 'asc',
+                },
+              },
+            },
+          });
+
+          if (existingSessionFromRequest) {
+            wasReplay = true;
+            return existingSessionFromRequest;
+          }
+        }
+      }
+
+      const existingSession = await tx.workoutSession.findUnique({
+        where: {
+          userId_sessionDate: {
+            userId,
+            sessionDate,
+          },
+        },
+        select: {
+          id: true,
+          startedAt: true,
+          totalVolume: true,
+          timezoneOffsetMinutes: true,
+        },
+      });
+
+      let sessionRecord: { id: string; totalVolume: number };
+      let isNewDailySession = false;
+
+      if (existingSession) {
+        sessionRecord = await tx.workoutSession.update({
           where: { id: existingSession.id },
           data: {
             startedAt:
@@ -243,156 +306,253 @@ export async function createWorkoutSession(userId: string, input: CreateWorkoutI
             id: true,
             totalVolume: true,
           },
-        })
-      : await tx.workoutSession.create({
+        });
+      } else {
+        try {
+          sessionRecord = await tx.workoutSession.create({
+            data: {
+              userId,
+              sessionDate,
+              startedAt: input.startedAt,
+              endedAt,
+              notes: normalizedNotes,
+              timezoneOffsetMinutes,
+            },
+            select: {
+              id: true,
+              totalVolume: true,
+            },
+          });
+          isNewDailySession = true;
+        } catch (error) {
+          if (!isUniqueConstraintError(error, ['userId', 'sessionDate'])) {
+            throw error;
+          }
+
+          const concurrentSession = await tx.workoutSession.findUnique({
+            where: {
+              userId_sessionDate: {
+                userId,
+                sessionDate,
+              },
+            },
+            select: {
+              id: true,
+              startedAt: true,
+              totalVolume: true,
+              timezoneOffsetMinutes: true,
+            },
+          });
+
+          if (!concurrentSession) {
+            throw error;
+          }
+
+          sessionRecord = await tx.workoutSession.update({
+            where: { id: concurrentSession.id },
+            data: {
+              startedAt:
+                concurrentSession.startedAt.getTime() <= input.startedAt.getTime()
+                  ? concurrentSession.startedAt
+                  : input.startedAt,
+              endedAt,
+              timezoneOffsetMinutes: timezoneOffsetMinutes ?? concurrentSession.timezoneOffsetMinutes,
+              ...(normalizedNotes ? { notes: normalizedNotes } : {}),
+            },
+            select: {
+              id: true,
+              totalVolume: true,
+            },
+          });
+        }
+      }
+
+      let totalVolume = 0;
+      let strongestLiftKg = 0;
+
+      for (const entry of input.entries) {
+        const volume = calculateVolume(entry.sets, entry.reps, entry.weightKg);
+        const estimated1Rm = calculateEstimatedOneRm(entry.weightKg, entry.reps);
+        totalVolume += volume;
+        strongestLiftKg = Math.max(strongestLiftKg, entry.weightKg ?? 0);
+
+        await tx.workoutEntry.create({
           data: {
-            userId,
-            sessionDate,
-            startedAt: input.startedAt,
-            endedAt,
-            notes: normalizedNotes,
-            timezoneOffsetMinutes,
-          },
-          select: {
-            id: true,
-            totalVolume: true,
+            sessionId: sessionRecord.id,
+            exerciseName: entry.exerciseName,
+            sets: entry.sets,
+            reps: entry.reps,
+            weightKg: entry.weightKg,
+            rpe: entry.rpe,
+            isCompleted: entry.isCompleted ?? true,
+            durationSec: entry.durationSec,
+            restSeconds: entry.restSeconds,
+            volume,
+            estimated1Rm,
           },
         });
 
-    const isNewDailySession = !existingSession;
-
-    let totalVolume = 0;
-    let strongestLiftKg = 0;
-
-    for (const entry of input.entries) {
-      const volume = calculateVolume(entry.sets, entry.reps, entry.weightKg);
-      const estimated1Rm = calculateEstimatedOneRm(entry.weightKg, entry.reps);
-      totalVolume += volume;
-      strongestLiftKg = Math.max(strongestLiftKg, entry.weightKg ?? 0);
-
-      await tx.workoutEntry.create({
-        data: {
-          sessionId: sessionRecord.id,
-          exerciseName: entry.exerciseName,
-          sets: entry.sets,
-          reps: entry.reps,
-          weightKg: entry.weightKg,
-          rpe: entry.rpe,
-          isCompleted: entry.isCompleted ?? true,
-          durationSec: entry.durationSec,
-          restSeconds: entry.restSeconds,
+        await upsertPersonalRecord(
+          tx,
+          userId,
+          sessionRecord.id,
+          sessionIsoWeek,
+          entry.exerciseName,
+          entry.weightKg ?? 0,
           volume,
-          estimated1Rm,
-        },
-      });
+          endedAt,
+        );
+      }
 
-      await upsertPersonalRecord(
-        tx,
-        userId,
-        sessionRecord.id,
-        sessionIsoWeek,
-        entry.exerciseName,
-        entry.weightKg ?? 0,
-        volume,
-        endedAt,
-      );
-    }
-
-    const existingWeekly = await tx.weeklyWorkoutStat.findUnique({
-      where: {
-        userId_isoWeek: {
-          userId,
-          isoWeek: sessionIsoWeek,
-        },
-      },
-    });
-
-    if (existingWeekly) {
-      await tx.weeklyWorkoutStat.update({
-        where: { id: existingWeekly.id },
-        data: {
-          totalVolume: Number((existingWeekly.totalVolume + totalVolume).toFixed(2)),
-          sessionsCount: isNewDailySession ? existingWeekly.sessionsCount + 1 : existingWeekly.sessionsCount,
-          strongestLiftKg: Math.max(existingWeekly.strongestLiftKg, strongestLiftKg),
-        },
-      });
-    } else {
-      await tx.weeklyWorkoutStat.create({
-        data: {
-          userId,
-          isoWeek: sessionIsoWeek,
-          totalVolume,
-          sessionsCount: 1,
-          strongestLiftKg,
-        },
-      });
-    }
-
-    const nextSessionTotalVolume = Number(((sessionRecord.totalVolume ?? 0) + totalVolume).toFixed(2));
-
-    const updatedSession = await tx.workoutSession.update({
-      where: { id: sessionRecord.id },
-      data: {
-        totalVolume: nextSessionTotalVolume,
-        endedAt,
-        ...(normalizedNotes ? { notes: normalizedNotes } : {}),
-      },
-      include: {
-        entries: {
-          orderBy: {
-            createdAt: 'asc',
+      const existingWeekly = await tx.weeklyWorkoutStat.findUnique({
+        where: {
+          userId_isoWeek: {
+            userId,
+            isoWeek: sessionIsoWeek,
           },
         },
-      },
-    });
+      });
 
-    await tx.userGamificationStat.upsert({
-      where: {
-        userId,
-      },
-      update: {
-        totalVolumeLifted: {
-          increment: totalVolume,
+      if (existingWeekly) {
+        await tx.weeklyWorkoutStat.update({
+          where: { id: existingWeekly.id },
+          data: {
+            totalVolume: Number((existingWeekly.totalVolume + totalVolume).toFixed(2)),
+            sessionsCount: isNewDailySession ? existingWeekly.sessionsCount + 1 : existingWeekly.sessionsCount,
+            strongestLiftKg: Math.max(existingWeekly.strongestLiftKg, strongestLiftKg),
+          },
+        });
+      } else {
+        await tx.weeklyWorkoutStat.create({
+          data: {
+            userId,
+            isoWeek: sessionIsoWeek,
+            totalVolume,
+            sessionsCount: 1,
+            strongestLiftKg,
+          },
+        });
+      }
+
+      const nextSessionTotalVolume = Number(((sessionRecord.totalVolume ?? 0) + totalVolume).toFixed(2));
+
+      const updatedSession = await tx.workoutSession.update({
+        where: { id: sessionRecord.id },
+        data: {
+          totalVolume: nextSessionTotalVolume,
+          endedAt,
+          ...(normalizedNotes ? { notes: normalizedNotes } : {}),
         },
-      },
-      create: {
-        userId,
-        totalVolumeLifted: totalVolume,
-        maxSessionVolume: nextSessionTotalVolume,
-        maxWeightKg: strongestLiftKg,
-      },
-    });
+        include: {
+          entries: {
+            orderBy: {
+              createdAt: 'asc',
+            },
+          },
+        },
+      });
 
-    if (nextSessionTotalVolume > 0) {
-      await tx.userGamificationStat.updateMany({
+      await tx.userGamificationStat.upsert({
         where: {
           userId,
-          maxSessionVolume: {
-            lt: nextSessionTotalVolume,
+        },
+        update: {
+          totalVolumeLifted: {
+            increment: totalVolume,
           },
         },
-        data: {
+        create: {
+          userId,
+          totalVolumeLifted: totalVolume,
           maxSessionVolume: nextSessionTotalVolume,
-        },
-      });
-    }
-
-    if (strongestLiftKg > 0) {
-      await tx.userGamificationStat.updateMany({
-        where: {
-          userId,
-          maxWeightKg: {
-            lt: strongestLiftKg,
-          },
-        },
-        data: {
           maxWeightKg: strongestLiftKg,
         },
       });
+
+      if (nextSessionTotalVolume > 0) {
+        await tx.userGamificationStat.updateMany({
+          where: {
+            userId,
+            maxSessionVolume: {
+              lt: nextSessionTotalVolume,
+            },
+          },
+          data: {
+            maxSessionVolume: nextSessionTotalVolume,
+          },
+        });
+      }
+
+      if (strongestLiftKg > 0) {
+        await tx.userGamificationStat.updateMany({
+          where: {
+            userId,
+            maxWeightKg: {
+              lt: strongestLiftKg,
+            },
+          },
+          data: {
+            maxWeightKg: strongestLiftKg,
+          },
+        });
+      }
+
+      if (idempotencyKey) {
+        await tx.workoutRequestLog.create({
+          data: {
+            userId,
+            sessionId: updatedSession.id,
+            idempotencyKey,
+          },
+        });
+      }
+
+      return updatedSession;
+    });
+  } catch (error) {
+    if (idempotencyKey && isUniqueConstraintError(error, ['userId', 'idempotencyKey'])) {
+      const existingRequest = await prisma.workoutRequestLog.findUnique({
+        where: {
+          userId_idempotencyKey: {
+            userId,
+            idempotencyKey,
+          },
+        },
+        select: {
+          sessionId: true,
+        },
+      });
+
+      if (existingRequest) {
+        const existingSession = await prisma.workoutSession.findFirst({
+          where: {
+            id: existingRequest.sessionId,
+            userId,
+          },
+          include: {
+            entries: {
+              orderBy: {
+                createdAt: 'asc',
+              },
+            },
+          },
+        });
+
+        if (existingSession) {
+          wasReplay = true;
+          session = existingSession;
+        }
+      }
     }
 
-    return updatedSession;
-  });
+    if (!session) {
+      throw error;
+    }
+  }
+
+  if (wasReplay) {
+    return session;
+  }
 
   const normalizedExerciseNames = Array.from(
     new Set(input.entries.map((entry) => normalizeExerciseName(entry.exerciseName))),

@@ -84,6 +84,7 @@ model User {
   personalRecordEvents  PersonalRecordEvent[]
   gamificationStat      UserGamificationStat?
   gamificationJobRuns   GamificationJobRun[]
+  workoutRequestLogs    WorkoutRequestLog[]
 }
 
 model WorkoutSession {
@@ -102,10 +103,25 @@ model WorkoutSession {
   muscleExpLedgers MuscleExpLedger[]
   personalRecordEvents PersonalRecordEvent[]
   gamificationJobRuns   GamificationJobRun[]
+  workoutRequestLogs    WorkoutRequestLog[]
 
-  @@index([userId, sessionDate])
+  @@unique([userId, sessionDate])
   @@index([userId, sessionDate, createdAt])
   @@index([userId, sessionDate(sort: Desc)], map: "WorkoutSession_userId_sessionDate_desc_idx")
+}
+
+model WorkoutRequestLog {
+  id             String         @id @default(cuid())
+  userId         String
+  sessionId      String
+  idempotencyKey String
+  createdAt      DateTime       @default(now())
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session        WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, createdAt])
+  @@index([sessionId, createdAt])
 }
 
 model WorkoutEntry {
@@ -183,6 +199,7 @@ model TrainingPlan {
   id         String            @id @default(cuid())
   userId     String
   name       String
+  description String?
   goal       UserGoal
   level      UserLevel
   isTemplate Boolean           @default(false)

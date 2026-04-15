@@ -145,8 +145,10 @@ function toWorkoutSessionInput(
   entries: ExerciseEntryInput[],
   notes: string,
   startedAt: Date,
+  idempotencyKey: string,
 ): WorkoutSessionInput {
   return {
+    idempotencyKey,
     startedAt: startedAt.toISOString(),
     endedAt: new Date().toISOString(),
     notes,
@@ -377,7 +379,12 @@ export function WorkoutSessionPage() {
 
   const persistLoggedEntry = useCallback(
     async (entry: ExerciseEntryInput) => {
-      const payload = toWorkoutSessionInput([entry], notes, startedAt.current);
+      const payload = toWorkoutSessionInput(
+        [entry],
+        notes,
+        startedAt.current,
+        crypto.randomUUID(),
+      );
       const requestPayload = {
         ...payload,
         sessionDate: localDateKey(),

@@ -5,6 +5,7 @@ import { Server } from 'socket.io';
 import { createApp } from './app.js';
 import { env } from './config/env.js';
 import { prisma } from './db/prisma.js';
+import { resolveAuthTokenFromHeaders, verifyAuthToken } from './middleware/auth.js';
 import { closeGamificationQueueResources, startGamificationWorker } from './modules/gamification/gamification.queue.js';
 import { subscribeGamificationRealtimeEvents, userRoomName } from './modules/gamification/gamification.realtime.js';
 import { processWorkoutGamificationJob } from './modules/gamification/gamification.service.js';
@@ -16,7 +17,32 @@ const server = createServer(app);
 const io = new Server(server, {
   cors: {
     origin: env.CORS_ORIGIN,
+    credentials: true,
   },
+});
+
+io.use((socket, next) => {
+  const token = resolveAuthTokenFromHeaders({
+    cookie: socket.handshake.headers.cookie,
+    authorization:
+      typeof socket.handshake.auth?.token === 'string' && socket.handshake.auth.token.length > 0
+        ? `Bearer ${socket.handshake.auth.token}`
+        : undefined,
+  });
+
+  if (!token) {
+    next(new Error('Unauthorized'));
+    return;
+  }
+
+  const user = verifyAuthToken(token);
+  if (!user) {
+    next(new Error('Unauthorized'));
+    return;
+  }
+
+  socket.data.user = user;
+  next();
 });
 
 let stopRealtimeSubscription: (() => Promise<void>) | null = null;
@@ -46,23 +72,15 @@ const inlineGamificationWorker = process.env.GAMIFICATION_INLINE_WORKER === 'tru
   : null;
 
 io.on('connection', (socket) => {
+  const socketUser = socket.data.user as { id: string; email: string } | undefined;
+  if (!socketUser) {
+    socket.disconnect(true);
+    return;
+  }
+
+  socket.join(userRoomName(socketUser.id));
+
   let timerRef: NodeJS.Timeout | null = null;
-
-  socket.on('user:join', ({ userId }: { userId: string }) => {
-    if (typeof userId !== 'string' || userId.trim().length === 0) {
-      return;
-    }
-
-    socket.join(userRoomName(userId.trim()));
-  });
-
-  socket.on('user:leave', ({ userId }: { userId: string }) => {
-    if (typeof userId !== 'string' || userId.trim().length === 0) {
-      return;
-    }
-
-    socket.leave(userRoomName(userId.trim()));
-  });
 
   socket.on('timer:start', ({ seconds }: { seconds: number }) => {
     if (timerRef) {

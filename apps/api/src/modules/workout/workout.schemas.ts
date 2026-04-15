@@ -12,6 +12,7 @@ export const workoutEntrySchema = z.object({
 });
 
 export const createWorkoutSchema = z.object({
+  idempotencyKey: z.string().uuid().optional(),
   sessionDate: z.coerce.date(),
   timezoneOffsetMinutes: z.number().int().min(-840).max(840).optional(),
   startedAt: z.coerce.date(),

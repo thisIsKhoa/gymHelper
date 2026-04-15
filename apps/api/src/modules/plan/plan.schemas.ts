@@ -14,18 +14,35 @@ const planDaySchema = z.object({
   exercises: z.array(planExerciseSchema).min(1),
 });
 
+const planDaysSchema = z.array(planDaySchema).min(1).max(7).superRefine((days, ctx) => {
+  const seen = new Set<number>();
+
+  days.forEach((day, index) => {
+    if (seen.has(day.dayOfWeek)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [index, 'dayOfWeek'],
+        message: 'Each dayOfWeek must be unique within the plan',
+      });
+      return;
+    }
+
+    seen.add(day.dayOfWeek);
+  });
+});
+
 export const createPlanSchema = z.object({
   name: z.string().min(3).max(120),
   description: z.string().max(240).optional(),
   goal: z.nativeEnum(UserGoal).optional(),
   level: z.nativeEnum(UserLevel).optional(),
-  days: z.array(planDaySchema).min(1).max(7),
+  days: planDaysSchema,
 });
 
 export const updatePlanSchema = z.object({
   name: z.string().min(3).max(120),
   description: z.string().max(240).optional(),
-  days: z.array(planDaySchema).min(1).max(7),
+  days: planDaysSchema,
 });
 
 export const duplicatePlanSchema = z.object({
