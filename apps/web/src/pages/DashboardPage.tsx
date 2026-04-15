@@ -8,6 +8,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
   Area,
@@ -24,6 +25,8 @@ import { ChartContainer } from "../components/ui/ChartContainer.tsx";
 import { Card } from "../components/ui/Card.tsx";
 import { LoadingState } from "../components/ui/LoadingState.tsx";
 import { apiRequest } from "../lib/api.ts";
+import { QUERY_GC_MS, QUERY_STALE_MS } from "../lib/query-config.ts";
+import { queryKeys } from "../lib/query-keys.ts";
 
 function formatShortDate(value: string) {
   const date = new Date(value);
@@ -167,7 +170,7 @@ function CountUpValue({
             scale-[1.05]
             text-transparent
             bg-clip-text
-            bg-gradient-to-r from-red-500 via-orange-400 to-yellow-400
+            bg-linear-to-r from-red-500 via-orange-400 to-yellow-400
             countup-finish-glow
             drop-shadow-[0_0_20px_rgba(255,120,0,0.55)]
           `
@@ -222,36 +225,17 @@ interface DashboardOverview {
 type HighlightsTab = "achievements" | "pr";
 
 export function DashboardPage() {
-  const [data, setData] = useState<DashboardOverview | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [highlightsTab, setHighlightsTab] =
     useState<HighlightsTab>("achievements");
+  const dashboardQuery = useQuery({
+    queryKey: queryKeys.dashboardOverview,
+    queryFn: () => apiRequest<DashboardOverview>("/dashboard/overview", "GET"),
+    staleTime: QUERY_STALE_MS.medium,
+    gcTime: QUERY_GC_MS.long,
+    refetchOnWindowFocus: false,
+  });
 
-  useEffect(() => {
-    async function load() {
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        const result = await apiRequest<DashboardOverview>(
-          "/dashboard/overview",
-          "GET",
-        );
-        setData(result);
-      } catch (loadError) {
-        setError(
-          loadError instanceof Error
-            ? loadError.message
-            : "Failed to load dashboard",
-        );
-      } finally {
-        setIsLoading(false);
-      }
-    }
-
-    void load();
-  }, []);
+  const data = dashboardQuery.data;
 
   const totalVolume = useMemo(() => {
     if (!data) {
@@ -274,12 +258,17 @@ export function DashboardPage() {
   const prHighlights = data?.prHighlights ?? [];
   const completedAchievements = data?.completedAchievements ?? [];
 
-  if (isLoading) {
+  if (dashboardQuery.isLoading) {
     return <LoadingState message="Loading dashboard..." cardCount={4} />;
   }
 
-  if (error) {
-    return <p className="ui-status ui-status-danger">{error}</p>;
+  if (dashboardQuery.error) {
+    const errorMessage =
+      dashboardQuery.error instanceof Error
+        ? dashboardQuery.error.message
+        : "Failed to load dashboard";
+
+    return <p className="ui-status ui-status-danger">{errorMessage}</p>;
   }
 
   if (!data) {
@@ -329,16 +318,16 @@ export function DashboardPage() {
 
   return (
     <div className="grid gap-4 md:gap-5">
-      <section className="order-2 glass-card p-4 sm:p-5 md:order-none">
+      <section className="order-2 glass-card p-4 sm:p-5 md:order-0">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
-            <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--muted)] sm:text-xs">
+            <p className="text-[11px] uppercase tracking-[0.16em] text-(--muted) sm:text-xs">
               Weekly Snapshot
             </p>
-            <h2 className="mt-1 text-xl font-bold text-[var(--text)] sm:text-2xl">
+            <h2 className="mt-1 text-xl font-bold text-(--text) sm:text-2xl">
               Keep Your Training Signal Consistent
             </h2>
-            <p className="mt-1 max-w-2xl text-sm text-[var(--muted)]">
+            <p className="mt-1 max-w-2xl text-sm text-(--muted)">
               This view combines volume, frequency, and PR data so you can spot
               momentum early and adjust your next session with confidence.
             </p>
@@ -362,7 +351,7 @@ export function DashboardPage() {
                 to={item.to}
                 className="ui-btn ui-btn-secondary inline-flex items-center justify-start gap-2"
               >
-                <Icon size={16} className="text-[var(--accent)]" />
+                <Icon size={16} className="text-(--accent)" />
                 {item.label}
               </Link>
             );
@@ -370,14 +359,14 @@ export function DashboardPage() {
         </div>
       </section>
 
-      <section className="order-first grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3 md:order-none md:grid-cols-4">
+      <section className="order-first grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3 md:order-0 md:grid-cols-4">
         {metricTiles.map((tile) => {
           const Icon = tile.icon;
 
           return (
             <Card key={tile.title} className="ui-kpi p-4">
               <div className="flex items-center justify-between gap-2">
-                <p className="text-sm font-semibold text-[var(--text)]">
+                <p className="text-sm font-semibold text-(--text)">
                   {tile.title}
                 </p>
                 <span className="ui-chip">
@@ -446,7 +435,7 @@ export function DashboardPage() {
 
         <Card
           title="Highlights"
-          className="flex min-h-[21rem] max-h-[70vh] flex-col p-4 sm:min-h-[23rem] sm:max-h-[32rem] sm:p-5 md:p-5"
+          className="flex min-h-84 max-h-[70vh] flex-col p-4 sm:min-h-92 sm:max-h-128 sm:p-5 md:p-5"
         >
           <div
             role="tablist"
@@ -461,7 +450,7 @@ export function DashboardPage() {
               className={`relative rounded-lg border px-2.5 py-1.5 pr-9 text-left transition-all ${
                 highlightsTab === "achievements"
                   ? "border-amber-300 bg-[linear-gradient(145deg,rgba(252,211,77,0.32),rgba(253,230,138,0.18))] text-amber-950 shadow-[0_8px_20px_rgba(245,158,11,0.18)]"
-                  : "border-transparent text-[var(--muted)] hover:border-[var(--border)]"
+                  : "border-transparent text-(--muted) hover:border-(--border)"
               }`}
             >
               <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.14em]">
@@ -479,15 +468,12 @@ export function DashboardPage() {
               onClick={() => setHighlightsTab("pr")}
               className={`relative rounded-lg border px-2.5 py-1.5 pr-9 text-left transition-all ${
                 highlightsTab === "pr"
-                  ? "border-[color-mix(in oklab,var(--accent) 36%,var(--border))] bg-[color-mix(in oklab,var(--accent) 16%,transparent)] text-[var(--text)] shadow-[0_8px_20px_rgba(16,185,129,0.14)]"
-                  : "border-transparent text-[var(--muted)] hover:border-[var(--border)]"
+                  ? "border-[color-mix(in oklab,var(--accent) 36%,var(--border))] bg-[color-mix(in oklab,var(--accent) 16%,transparent)] text-(--text) shadow-[0_8px_20px_rgba(16,185,129,0.14)]"
+                  : "border-transparent text-(--muted) hover:border-(--border)"
               }`}
             >
               <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.14em]">
-                <TrendingUp
-                  size={12}
-                  className="text-[var(--chart-trend-up)]"
-                />
+                <TrendingUp size={12} className="text-(--chart-trend-up)" />
                 PR Highlights
               </span>
               <p className="absolute right-2.5 top-1/2 -translate-y-1/2 text-base font-bold leading-none">
@@ -512,10 +498,10 @@ export function DashboardPage() {
                     <div className="pointer-events-none absolute -right-8 -top-10 h-20 w-20 rounded-full bg-amber-300/35 blur-2xl" />
                     <div className="relative flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="text-base font-semibold leading-tight text-[var(--text)]">
+                        <p className="text-base font-semibold leading-tight text-(--text)">
                           {achievement.title}
                         </p>
-                        <p className="mt-1 text-sm leading-snug text-[var(--text)]/78">
+                        <p className="mt-1 text-sm leading-snug text-(--text)/78">
                           {achievement.description}
                         </p>
                       </div>
@@ -531,7 +517,7 @@ export function DashboardPage() {
                       <span className="rounded-full border border-amber-300/90 bg-amber-50 px-2 py-0.5 font-semibold text-amber-900">
                         {categoryLabel(achievement.category)}
                       </span>
-                      <span className="text-[var(--text)]/70">
+                      <span className="text-(--text)/70">
                         {formatMediumDate(achievement.unlockedAt)}
                       </span>
                     </div>
@@ -542,7 +528,7 @@ export function DashboardPage() {
           ) : (
             <ul className="ui-scroll min-h-0 flex-1 space-y-2.5 overflow-y-auto pr-0.5">
               {prHighlights.length === 0 ? (
-                <li className="rounded-xl border border-dashed border-[var(--border)] px-3 py-3 text-sm text-[var(--muted)]">
+                <li className="rounded-xl border border-dashed border-(--border) px-3 py-3 text-sm text-(--muted)">
                   No PR yet.
                 </li>
               ) : (
@@ -552,24 +538,24 @@ export function DashboardPage() {
                     className="ui-tile p-3"
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <p className="font-semibold text-[var(--text)]">
+                      <p className="font-semibold text-(--text)">
                         {record.exerciseName}
                       </p>
-                      <span className="rounded-full border border-[color-mix(in oklab,var(--accent) 38%,var(--border))] bg-[color-mix(in oklab,var(--accent) 12%,transparent)] px-2 py-0.5 text-[11px] font-semibold text-[var(--text)]">
+                      <span className="rounded-full border border-[color-mix(in oklab,var(--accent) 38%,var(--border))] bg-[color-mix(in oklab,var(--accent) 12%,transparent)] px-2 py-0.5 text-[11px] font-semibold text-(--text)">
                         PR
                       </span>
                     </div>
 
                     <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
-                      <span className="rounded-full border border-[var(--border)] bg-[color-mix(in oklab,var(--surface) 92%,black)] px-2 py-0.5 text-[var(--text)]">
+                      <span className="rounded-full border border-(--border) bg-[color-mix(in oklab,var(--surface) 92%,black)] px-2 py-0.5 text-(--text)">
                         Top {record.bestWeightKg} kg
                       </span>
-                      <span className="rounded-full border border-[var(--border)] bg-[color-mix(in oklab,var(--surface) 92%,black)] px-2 py-0.5 text-[var(--text)]">
+                      <span className="rounded-full border border-(--border) bg-[color-mix(in oklab,var(--surface) 92%,black)] px-2 py-0.5 text-(--text)">
                         Vol {record.bestVolume.toFixed(0)}
                       </span>
                     </div>
 
-                    <p className="mt-1.5 text-xs text-[var(--muted)]">
+                    <p className="mt-1.5 text-xs text-(--muted)">
                       Updated {formatMediumDate(record.achievedAt)}
                     </p>
                   </li>
@@ -618,17 +604,17 @@ export function DashboardPage() {
           subtitle="Session cadence and benchmark lift tracking"
         >
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <p className="ui-tile px-3 py-2 text-sm text-[var(--muted)]">
+            <p className="ui-tile px-3 py-2 text-sm text-(--muted)">
               Total sessions: <CountUpValue value={totalSessions} />
             </p>
-            <p className="ui-tile px-3 py-2 text-sm text-[var(--muted)]">
+            <p className="ui-tile px-3 py-2 text-sm text-(--muted)">
               Total volume: <CountUpValue value={totalVolume} suffix=" kg" />
             </p>
-            <p className="ui-tile px-3 py-2 text-sm text-[var(--muted)]">
+            <p className="ui-tile px-3 py-2 text-sm text-(--muted)">
               Latest bench max:{" "}
               <CountUpValue value={latestBench} decimals={1} suffix=" kg" />
             </p>
-            <p className="ui-tile px-3 py-2 text-sm text-[var(--muted)]">
+            <p className="ui-tile px-3 py-2 text-sm text-(--muted)">
               Completed achievements:{" "}
               <CountUpValue value={completedAchievements.length} />
             </p>

@@ -1,4 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   CartesianGrid,
   Legend,
@@ -13,6 +18,8 @@ import { ChartContainer } from "../components/ui/ChartContainer.tsx";
 import { Card } from "../components/ui/Card.tsx";
 import { LoadingState } from "../components/ui/LoadingState.tsx";
 import { apiRequest } from "../lib/api.ts";
+import { QUERY_GC_MS, QUERY_STALE_MS } from "../lib/query-config.ts";
+import { queryKeys } from "../lib/query-keys.ts";
 
 interface BodyMetricInput {
   loggedAt: string;
@@ -49,7 +56,20 @@ function sortByLoggedAtAsc(points: BodyMetricPoint[]): BodyMetricPoint[] {
   );
 }
 
+function historyPath(cursor: string | null): string {
+  const query = new URLSearchParams({
+    limit: String(BODY_METRICS_HISTORY_PAGE_SIZE),
+  });
+
+  if (cursor) {
+    query.set("cursor", cursor);
+  }
+
+  return `/body-metrics/history?${query.toString()}`;
+}
+
 export function BodyMetricsPage() {
+  const queryClient = useQueryClient();
   const [form, setForm] = useState<BodyMetricInput>({
     loggedAt: new Date().toISOString().slice(0, 10),
     weightKg: 80,
@@ -57,64 +77,75 @@ export function BodyMetricsPage() {
     muscleMassKg: "",
     notes: "",
   });
-  const [history, setHistory] = useState<BodyMetricPoint[]>([]);
-  const [historyCursor, setHistoryCursor] = useState<string | null>(null);
-  const [historyHasMore, setHistoryHasMore] = useState(false);
-  const [isLoadingMoreHistory, setIsLoadingMoreHistory] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
 
-  const load = async () => {
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const result = await apiRequest<PaginatedResponse<BodyMetricPoint>>(
-        `/body-metrics/history?limit=${BODY_METRICS_HISTORY_PAGE_SIZE}`,
+  const historyQuery = useInfiniteQuery({
+    queryKey: queryKeys.bodyMetricsHistory,
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
+      apiRequest<PaginatedResponse<BodyMetricPoint>>(
+        historyPath(pageParam),
         "GET",
+      ),
+    getNextPageParam: (lastPage) => lastPage.pagination.nextCursor ?? undefined,
+    staleTime: QUERY_STALE_MS.medium,
+    gcTime: QUERY_GC_MS.long,
+    refetchOnWindowFocus: false,
+  });
+
+  const createMetricMutation = useMutation({
+    mutationFn: (payload: {
+      loggedAt: string;
+      weightKg: number;
+      bodyFatPct?: number;
+      muscleMassKg?: number;
+      notes?: string;
+    }) => apiRequest<BodyMetricPoint>("/body-metrics", "POST", payload),
+    onSuccess: async () => {
+      setStatus("Body metrics saved.");
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.bodyMetricsHistory,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.dashboardOverview,
+        }),
+      ]);
+    },
+    onError: (submitError) => {
+      setStatus(
+        submitError instanceof Error
+          ? submitError.message
+          : "Failed to save metric",
       );
-      setHistory(sortByLoggedAtAsc(result.items));
-      setHistoryHasMore(result.pagination.hasMore);
-      setHistoryCursor(result.pagination.nextCursor ?? null);
-    } catch (loadError) {
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : "Failed to load body metrics",
-      );
-    } finally {
-      setIsLoading(false);
+    },
+  });
+
+  const history = useMemo(() => {
+    const mergedItems =
+      historyQuery.data?.pages.flatMap((page) => page.items) ?? [];
+    const uniqueById = new Map<string, BodyMetricPoint>();
+
+    for (const point of mergedItems) {
+      uniqueById.set(point.id, point);
     }
-  };
+
+    return sortByLoggedAtAsc(Array.from(uniqueById.values()));
+  }, [historyQuery.data]);
+
+  const latest = useMemo(() => history.at(-1), [history]);
 
   const loadMoreHistory = async () => {
-    if (!historyHasMore || isLoadingMoreHistory || !historyCursor) {
+    if (!historyQuery.hasNextPage || historyQuery.isFetchingNextPage) {
       return;
     }
 
-    setIsLoadingMoreHistory(true);
     try {
-      const result = await apiRequest<PaginatedResponse<BodyMetricPoint>>(
-        `/body-metrics/history?limit=${BODY_METRICS_HISTORY_PAGE_SIZE}&cursor=${encodeURIComponent(historyCursor)}`,
-        "GET",
-      );
-
-      setHistory((current) => sortByLoggedAtAsc([...current, ...result.items]));
-      setHistoryHasMore(result.pagination.hasMore);
-      setHistoryCursor(result.pagination.nextCursor ?? null);
+      await historyQuery.fetchNextPage();
     } catch {
       setStatus("Failed to load older metrics.");
-    } finally {
-      setIsLoadingMoreHistory(false);
     }
   };
-
-  useEffect(() => {
-    void load();
-  }, []);
-
-  const latest = useMemo(() => history.at(-1), [history]);
 
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -129,49 +160,24 @@ export function BodyMetricsPage() {
       notes: form.notes.trim() ? form.notes.trim() : undefined,
     };
 
-    const optimisticId = `optimistic-${crypto.randomUUID()}`;
-    const optimisticPoint: BodyMetricPoint = {
-      id: optimisticId,
-      loggedAt: new Date(payload.loggedAt).toISOString(),
-      weightKg: payload.weightKg,
-      bodyFatPct: payload.bodyFatPct,
-      muscleMassKg: payload.muscleMassKg,
-      notes: payload.notes,
-    };
-
-    setHistory((current) => sortByLoggedAtAsc([...current, optimisticPoint]));
-
     try {
-      const saved = await apiRequest<BodyMetricPoint>(
-        "/body-metrics",
-        "POST",
-        payload,
-      );
-
-      setHistory((current) =>
-        sortByLoggedAtAsc(
-          current.map((point) => (point.id === optimisticId ? saved : point)),
-        ),
-      );
-      setStatus("Body metrics saved.");
-    } catch (submitError) {
-      setHistory((current) =>
-        current.filter((point) => point.id !== optimisticId),
-      );
-      setStatus(
-        submitError instanceof Error
-          ? submitError.message
-          : "Failed to save metric",
-      );
+      await createMetricMutation.mutateAsync(payload);
+    } catch {
+      // Errors are surfaced via mutation onError and status state.
     }
   };
 
-  if (isLoading) {
+  if (historyQuery.isLoading) {
     return <LoadingState message="Loading body metrics..." cardCount={2} />;
   }
 
-  if (error) {
-    return <p className="ui-status ui-status-danger">{error}</p>;
+  if (historyQuery.error) {
+    const errorMessage =
+      historyQuery.error instanceof Error
+        ? historyQuery.error.message
+        : "Failed to load body metrics";
+
+    return <p className="ui-status ui-status-danger">{errorMessage}</p>;
   }
 
   const hasHistory = history.length > 0;
@@ -279,9 +285,10 @@ export function BodyMetricsPage() {
 
           <button
             type="submit"
+            disabled={createMetricMutation.isPending}
             className="ui-btn ui-btn-primary w-full sm:w-auto"
           >
-            Save Metrics
+            {createMetricMutation.isPending ? "Saving..." : "Save Metrics"}
           </button>
 
           {status ? <p className="ui-status">{status}</p> : null}
@@ -339,12 +346,14 @@ export function BodyMetricsPage() {
             <button
               type="button"
               onClick={() => void loadMoreHistory()}
-              disabled={!historyHasMore || isLoadingMoreHistory}
+              disabled={
+                !historyQuery.hasNextPage || historyQuery.isFetchingNextPage
+              }
               className="ui-btn ui-btn-secondary mt-3 w-full"
             >
-              {isLoadingMoreHistory
+              {historyQuery.isFetchingNextPage
                 ? "Loading older entries..."
-                : historyHasMore
+                : historyQuery.hasNextPage
                   ? "Load older entries"
                   : "All loaded"}
             </button>
@@ -362,17 +371,17 @@ export function BodyMetricsPage() {
           <Card title="Latest Snapshot" subtitle="Most recent measurement">
             <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
               <div className="ui-tile p-3">
-                <p className="text-[var(--muted)]">Weight</p>
+                <p className="text-(--muted)">Weight</p>
                 <p className="text-lg font-semibold">{latest.weightKg} kg</p>
               </div>
               <div className="ui-tile p-3">
-                <p className="text-[var(--muted)]">Date</p>
+                <p className="text-(--muted)">Date</p>
                 <p className="text-lg font-semibold">
                   {new Date(latest.loggedAt).toLocaleDateString()}
                 </p>
               </div>
               <div className="ui-tile p-3">
-                <p className="text-[var(--muted)]">Body Fat</p>
+                <p className="text-(--muted)">Body Fat</p>
                 <p className="text-lg font-semibold">
                   {typeof latest.bodyFatPct === "number"
                     ? `${latest.bodyFatPct}%`
@@ -380,7 +389,7 @@ export function BodyMetricsPage() {
                 </p>
               </div>
               <div className="ui-tile p-3">
-                <p className="text-[var(--muted)]">Muscle Mass</p>
+                <p className="text-(--muted)">Muscle Mass</p>
                 <p className="text-lg font-semibold">
                   {typeof latest.muscleMassKg === "number"
                     ? `${latest.muscleMassKg} kg`
@@ -390,7 +399,7 @@ export function BodyMetricsPage() {
             </div>
 
             {latest.notes ? (
-              <div className="ui-panel mt-3 text-sm text-[var(--muted)]">
+              <div className="ui-panel mt-3 text-sm text-(--muted)">
                 <p className="mb-1 text-xs uppercase tracking-[0.14em]">
                   Notes
                 </p>

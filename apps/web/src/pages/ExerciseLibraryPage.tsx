@@ -1,8 +1,12 @@
 import { Plus, Search } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { Card } from "../components/ui/Card.tsx";
+import { useDebouncedValue } from "../hooks/useDebouncedValue.ts";
 import { apiRequest } from "../lib/api.ts";
+import { QUERY_GC_MS, QUERY_STALE_MS } from "../lib/query-config.ts";
+import { queryKeys } from "../lib/query-keys.ts";
 import type { ExerciseLibraryItem } from "../types/workout.ts";
 
 const muscleGroupOptions = [
@@ -25,8 +29,18 @@ interface CustomExerciseForm {
   defaultRestSeconds: number;
 }
 
+function toExerciseQueryPath(search: string): string {
+  const normalized = search.trim();
+
+  if (!normalized) {
+    return "/exercises";
+  }
+
+  return `/exercises?search=${encodeURIComponent(normalized)}`;
+}
+
 export function ExerciseLibraryPage() {
-  const [items, setItems] = useState<ExerciseLibraryItem[]>([]);
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [form, setForm] = useState<CustomExerciseForm>({
@@ -36,28 +50,45 @@ export function ExerciseLibraryPage() {
     defaultRestSeconds: 90,
   });
 
-  const load = async () => {
-    try {
-      const query = search.trim()
-        ? `?search=${encodeURIComponent(search.trim())}`
-        : "";
-      const result = await apiRequest<ExerciseLibraryItem[]>(
-        `/exercises${query}`,
+  const normalizedSearch = search.trim();
+  const debouncedSearch = useDebouncedValue(normalizedSearch, 250);
+
+  const exercisesQuery = useQuery({
+    queryKey: queryKeys.exerciseLibrary(debouncedSearch),
+    queryFn: () =>
+      apiRequest<ExerciseLibraryItem[]>(
+        toExerciseQueryPath(debouncedSearch),
         "GET",
-      );
-      setItems(result);
-    } catch (error) {
+      ),
+    staleTime: QUERY_STALE_MS.long,
+    gcTime: QUERY_GC_MS.long,
+    refetchOnWindowFocus: false,
+  });
+
+  const createExerciseMutation = useMutation({
+    mutationFn: (payload: CustomExerciseForm) =>
+      apiRequest("/exercises", "POST", payload),
+    onSuccess: async () => {
+      setStatus("Custom exercise added.");
+      setForm((current) => ({
+        ...current,
+        name: "",
+      }));
+
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.exerciseLibraryBase,
+      });
+    },
+    onError: (error) => {
       setStatus(
         error instanceof Error
           ? error.message
-          : "Failed to load exercise library.",
+          : "Failed to add custom exercise.",
       );
-    }
-  };
+    },
+  });
 
-  useEffect(() => {
-    void load();
-  }, []);
+  const items = exercisesQuery.data ?? [];
 
   const groupedCount = useMemo(() => {
     const map = new Map<string, number>();
@@ -74,19 +105,9 @@ export function ExerciseLibraryPage() {
     setStatus(null);
 
     try {
-      await apiRequest("/exercises", "POST", form);
-      setStatus("Custom exercise added.");
-      setForm((current) => ({
-        ...current,
-        name: "",
-      }));
-      await load();
-    } catch (error) {
-      setStatus(
-        error instanceof Error
-          ? error.message
-          : "Failed to add custom exercise.",
-      );
+      await createExerciseMutation.mutateAsync(form);
+    } catch {
+      // Errors are surfaced via mutation onError and status state.
     }
   };
 
@@ -173,9 +194,11 @@ export function ExerciseLibraryPage() {
 
           <button
             type="submit"
+            disabled={createExerciseMutation.isPending}
             className="ui-btn ui-btn-primary inline-flex w-full items-center justify-center gap-2 sm:w-auto"
           >
-            <Plus size={16} /> Add Exercise
+            <Plus size={16} />
+            {createExerciseMutation.isPending ? "Adding..." : "Add Exercise"}
           </button>
         </form>
 
@@ -187,18 +210,11 @@ export function ExerciseLibraryPage() {
           title="Exercise Library"
           subtitle="Predefined and custom movements for workout logging"
           action={
-            <label className="inline-flex min-h-11 w-full items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface-solid)] px-3 py-1.5 text-sm text-[var(--muted)] sm:w-auto">
+            <label className="inline-flex min-h-11 w-full items-center gap-2 rounded-xl border border-(--border) bg-(--surface-solid) px-3 py-1.5 text-sm text-(--muted) sm:w-auto">
               <Search size={14} />
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                onBlur={() => void load()}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    void load();
-                  }
-                }}
                 className="w-full bg-transparent outline-none sm:w-28"
                 placeholder="Search"
               />
@@ -217,21 +233,34 @@ export function ExerciseLibraryPage() {
             {items.map((item) => (
               <article key={item.id} className="ui-tile p-3">
                 <p className="text-sm font-semibold">{item.name}</p>
-                <p className="mt-1 text-xs text-[var(--muted)]">
+                <p className="mt-1 text-xs text-(--muted)">
                   {item.muscleGroup.replaceAll("_", " ")} · {item.exerciseType}
                 </p>
-                <p className="mt-1 text-xs text-[var(--muted)]">
+                <p className="mt-1 text-xs text-(--muted)">
                   Rest {item.defaultRestSeconds}s
                 </p>
-                <p className="mt-2 text-[10px] uppercase tracking-[0.12em] text-[var(--muted)]">
+                <p className="mt-2 text-[10px] uppercase tracking-[0.12em] text-(--muted)">
                   {item.source}
                 </p>
               </article>
             ))}
-            {items.length === 0 ? (
+
+            {exercisesQuery.isLoading ? (
+              <p className="ui-empty-state text-sm">Loading exercises...</p>
+            ) : null}
+
+            {!exercisesQuery.isLoading && items.length === 0 ? (
               <p className="ui-empty-state text-sm">No exercises found.</p>
             ) : null}
           </div>
+
+          {exercisesQuery.error ? (
+            <p className="ui-status ui-status-danger mt-3">
+              {exercisesQuery.error instanceof Error
+                ? exercisesQuery.error.message
+                : "Failed to load exercise library."}
+            </p>
+          ) : null}
         </Card>
       </div>
     </div>

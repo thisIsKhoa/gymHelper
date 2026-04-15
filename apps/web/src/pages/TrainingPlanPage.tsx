@@ -8,11 +8,14 @@ import {
   Trash2,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 
 import { Card } from "../components/ui/Card.tsx";
 import { LoadingState } from "../components/ui/LoadingState.tsx";
 import { apiRequest } from "../lib/api.ts";
+import { QUERY_GC_MS, QUERY_STALE_MS } from "../lib/query-config.ts";
+import { queryKeys } from "../lib/query-keys.ts";
 import type { ExerciseLibraryItem } from "../types/workout.ts";
 
 interface PlanDay {
@@ -175,16 +178,14 @@ function parseExerciseList(raw: unknown): string[] {
 }
 
 export function TrainingPlanPage() {
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const [plans, setPlans] = useState<ApiPlan[]>([]);
-  const [library, setLibrary] = useState<ExerciseLibraryItem[]>([]);
   const [planName, setPlanName] = useState("Personal Plan");
   const [days, setDays] = useState<PlanDay[]>(defaultDays);
   const [status, setStatus] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [currentPlanId, setCurrentPlanId] = useState<string | null>(null);
+  const [didHydrateInitialPlan, setDidHydrateInitialPlan] = useState(false);
   const [selectedExerciseByDay, setSelectedExerciseByDay] = useState<
     Record<number, string>
   >({});
@@ -196,6 +197,25 @@ export function TrainingPlanPage() {
     exerciseIndex: number;
   } | null>(null);
 
+  const plansQuery = useQuery({
+    queryKey: queryKeys.plans,
+    queryFn: () => apiRequest<ApiPlan[]>("/plans", "GET"),
+    staleTime: QUERY_STALE_MS.medium,
+    gcTime: QUERY_GC_MS.long,
+    refetchOnWindowFocus: false,
+  });
+
+  const libraryQuery = useQuery({
+    queryKey: queryKeys.exerciseLibraryBase,
+    queryFn: () => apiRequest<ExerciseLibraryItem[]>("/exercises", "GET"),
+    staleTime: QUERY_STALE_MS.long,
+    gcTime: QUERY_GC_MS.long,
+    refetchOnWindowFocus: false,
+  });
+
+  const plans = plansQuery.data ?? [];
+  const library = libraryQuery.data ?? [];
+
   const totalExercises = useMemo(() => {
     return days.reduce((acc, day) => acc + day.exercises.length, 0);
   }, [days]);
@@ -206,53 +226,34 @@ export function TrainingPlanPage() {
       .sort((a, b) => a.localeCompare(b));
   }, [library]);
 
-  const loadPlans = async () => {
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const result = await apiRequest<ApiPlan[]>("/plans", "GET");
-      setPlans(result);
-
-      const first = result[0];
-      if (first) {
-        setCurrentPlanId(first.id);
-        setPlanName(first.name);
-        setActiveSessionPlanId(first.id);
-        setDays(
-          first.days.map((day) => ({
-            dayOfWeek: day.dayOfWeek,
-            focus: day.focus,
-            exercises: parseExerciseList(day.exercises),
-            restSeconds: 90,
-          })),
-        );
-      }
-    } catch (loadError) {
-      setError(
-        loadError instanceof Error ? loadError.message : "Failed to load plans",
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const loadExerciseLibrary = async () => {
-    try {
-      const result = await apiRequest<ExerciseLibraryItem[]>(
-        "/exercises",
-        "GET",
-      );
-      setLibrary(result);
-    } catch {
-      setLibrary([]);
-    }
-  };
-
   useEffect(() => {
-    void loadPlans();
-    void loadExerciseLibrary();
-  }, []);
+    if (didHydrateInitialPlan) {
+      return;
+    }
+
+    if (!plansQuery.isSuccess) {
+      return;
+    }
+
+    const first = plans[0];
+    if (!first) {
+      setDidHydrateInitialPlan(true);
+      return;
+    }
+
+    setCurrentPlanId(first.id);
+    setPlanName(first.name);
+    setActiveSessionPlanId(first.id);
+    setDays(
+      first.days.map((day) => ({
+        dayOfWeek: day.dayOfWeek,
+        focus: day.focus,
+        exercises: parseExerciseList(day.exercises),
+        restSeconds: 90,
+      })),
+    );
+    setDidHydrateInitialPlan(true);
+  }, [didHydrateInitialPlan, plans, plansQuery.isSuccess]);
 
   const updateDay = (index: number, patch: Partial<PlanDay>) => {
     setDays((current) =>
@@ -295,7 +296,7 @@ export function TrainingPlanPage() {
         setStatus("Plan created.");
       }
 
-      await loadPlans();
+      await queryClient.invalidateQueries({ queryKey: queryKeys.plans });
     } catch (saveError) {
       setStatus(
         saveError instanceof Error ? saveError.message : "Failed to save plan",
@@ -324,7 +325,7 @@ export function TrainingPlanPage() {
       setPlanName(duplicated.name);
       setActiveSessionPlanId(duplicated.id);
       setStatus("Plan duplicated.");
-      await loadPlans();
+      await queryClient.invalidateQueries({ queryKey: queryKeys.plans });
     } catch (duplicateError) {
       setStatus(
         duplicateError instanceof Error
@@ -460,12 +461,17 @@ export function TrainingPlanPage() {
     );
   };
 
-  if (isLoading) {
+  if (plansQuery.isLoading) {
     return <LoadingState message="Loading plans..." cardCount={3} />;
   }
 
-  if (error) {
-    return <p className="ui-status ui-status-danger">{error}</p>;
+  if (plansQuery.error) {
+    const errorMessage =
+      plansQuery.error instanceof Error
+        ? plansQuery.error.message
+        : "Failed to load plans";
+
+    return <p className="ui-status ui-status-danger">{errorMessage}</p>;
   }
 
   return (
@@ -584,9 +590,9 @@ export function TrainingPlanPage() {
                           <span className="inline-flex min-w-0 items-center gap-2 text-sm">
                             <GripVertical
                               size={14}
-                              className="shrink-0 text-[var(--muted)]"
+                              className="shrink-0 text-(--muted)"
                             />
-                            <span className="break-words">{exercise}</span>
+                            <span className="wrap-break-word">{exercise}</span>
                           </span>
                           <div className="flex items-center gap-1 self-end sm:self-auto">
                             <button
@@ -599,7 +605,7 @@ export function TrainingPlanPage() {
                                 )
                               }
                               disabled={exerciseIndex === 0}
-                              className="ui-btn ui-btn-ghost min-h-9 rounded-md p-1.5 text-[var(--muted)] disabled:opacity-40"
+                              className="ui-btn ui-btn-ghost min-h-9 rounded-md p-1.5 text-(--muted) disabled:opacity-40"
                               aria-label="Move exercise up"
                             >
                               <ArrowUp size={14} />
@@ -617,7 +623,7 @@ export function TrainingPlanPage() {
                               disabled={
                                 exerciseIndex === day.exercises.length - 1
                               }
-                              className="ui-btn ui-btn-ghost min-h-9 rounded-md p-1.5 text-[var(--muted)] disabled:opacity-40"
+                              className="ui-btn ui-btn-ghost min-h-9 rounded-md p-1.5 text-(--muted) disabled:opacity-40"
                               aria-label="Move exercise down"
                             >
                               <ArrowDown size={14} />
@@ -628,7 +634,7 @@ export function TrainingPlanPage() {
                               onClick={() =>
                                 removeExercise(index, exerciseIndex)
                               }
-                              className="ui-btn ui-btn-ghost min-h-9 rounded-md p-1.5 text-[var(--muted)]"
+                              className="ui-btn ui-btn-ghost min-h-9 rounded-md p-1.5 text-(--muted)"
                               aria-label="Remove exercise"
                             >
                               <Trash2 size={14} />
@@ -638,7 +644,7 @@ export function TrainingPlanPage() {
                       ))}
 
                       {day.exercises.length === 0 ? (
-                        <p className="text-xs text-[var(--muted)]">
+                        <p className="text-xs text-(--muted)">
                           No exercises yet.
                         </p>
                       ) : null}
@@ -723,12 +729,12 @@ export function TrainingPlanPage() {
                       </button>
                     </div>
                     {library.length === 0 ? (
-                      <p className="mt-2 text-xs text-[var(--muted)]">
+                      <p className="mt-2 text-xs text-(--muted)">
                         Exercise library is empty. Add custom exercises in
                         Library page.
                       </p>
                     ) : filteredLibrary.length === 0 ? (
-                      <p className="mt-2 text-xs text-[var(--muted)]">
+                      <p className="mt-2 text-xs text-(--muted)">
                         No exercises in this muscle group.
                       </p>
                     ) : null}
@@ -776,10 +782,10 @@ export function TrainingPlanPage() {
                 key={template.name}
                 type="button"
                 onClick={() => applyTemplate(index)}
-                className="ui-panel w-full p-3 text-left transition hover:border-[var(--accent)]"
+                className="ui-panel w-full p-3 text-left transition hover:border-(--accent)"
               >
                 <p className="font-semibold">{template.name}</p>
-                <p className="text-xs text-[var(--muted)]">
+                <p className="text-xs text-(--muted)">
                   {template.days.map((day) => day.focus).join(" • ")}
                 </p>
               </button>

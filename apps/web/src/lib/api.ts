@@ -24,6 +24,46 @@ interface CacheEntry {
 const getResponseCache = new Map<string, CacheEntry>()
 const inFlightGetRequests = new Map<string, Promise<unknown>>()
 
+interface ApiCacheDiagnostics {
+  totalRequests: number
+  mutationRequests: number
+  getRequests: number
+  getCacheHits: number
+  getCacheMisses: number
+  inFlightDedupHits: number
+  cacheEntryCount: number
+  inFlightEntryCount: number
+  lastResetAt: string
+}
+
+const apiCacheMetrics = {
+  totalRequests: 0,
+  mutationRequests: 0,
+  getRequests: 0,
+  getCacheHits: 0,
+  getCacheMisses: 0,
+  inFlightDedupHits: 0,
+  lastResetAt: new Date().toISOString(),
+}
+
+export function getApiCacheDiagnostics(): ApiCacheDiagnostics {
+  return {
+    ...apiCacheMetrics,
+    cacheEntryCount: getResponseCache.size,
+    inFlightEntryCount: inFlightGetRequests.size,
+  }
+}
+
+export function resetApiCacheDiagnostics(): void {
+  apiCacheMetrics.totalRequests = 0
+  apiCacheMetrics.mutationRequests = 0
+  apiCacheMetrics.getRequests = 0
+  apiCacheMetrics.getCacheHits = 0
+  apiCacheMetrics.getCacheMisses = 0
+  apiCacheMetrics.inFlightDedupHits = 0
+  apiCacheMetrics.lastResetAt = new Date().toISOString()
+}
+
 function buildCacheKey(url: string, token: string | null): string {
   return `${token ?? 'anonymous'}:${url}`
 }
@@ -204,20 +244,26 @@ export async function apiRequest<T>(
   body?: unknown,
   options?: ApiRequestOptions,
 ): Promise<T> {
+  apiCacheMetrics.totalRequests += 1
   const token = getAuthToken()
   const url = `${API_BASE_URL}${path}`
   const cacheKey = buildCacheKey(url, token)
 
   if (method === 'GET') {
+    apiCacheMetrics.getRequests += 1
     const now = Date.now()
     const cached = getResponseCache.get(cacheKey)
 
     if (cached && cached.expiresAt > now) {
+      apiCacheMetrics.getCacheHits += 1
       return cached.data as T
     }
 
+    apiCacheMetrics.getCacheMisses += 1
+
     const inFlight = inFlightGetRequests.get(cacheKey)
     if (inFlight) {
+      apiCacheMetrics.inFlightDedupHits += 1
       return inFlight as Promise<T>
     }
 
@@ -238,6 +284,7 @@ export async function apiRequest<T>(
     return requestPromise
   }
 
+  apiCacheMetrics.mutationRequests += 1
   const result = await performRequest<T>(url, method, token, body)
 
   const invalidatePrefixes = options?.invalidatePrefixes ?? inferMutationInvalidationPrefixes(path)

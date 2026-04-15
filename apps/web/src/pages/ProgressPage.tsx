@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
   Bar,
   BarChart,
@@ -15,6 +15,8 @@ import { ChartContainer } from "../components/ui/ChartContainer.tsx";
 import { Card } from "../components/ui/Card.tsx";
 import { LoadingState } from "../components/ui/LoadingState.tsx";
 import { apiRequest } from "../lib/api.ts";
+import { QUERY_GC_MS, QUERY_STALE_MS } from "../lib/query-config.ts";
+import { queryKeys } from "../lib/query-keys.ts";
 import type { ExerciseLibraryItem } from "../types/workout.ts";
 
 interface ExerciseProgressResponse {
@@ -77,25 +79,34 @@ export function ProgressPage() {
   const [weeks, setWeeks] = useState(12);
 
   const exerciseLibraryQuery = useQuery({
-    queryKey: ["exercise-library"],
+    queryKey: queryKeys.exerciseLibrary(),
     queryFn: () => apiRequest<ExerciseLibraryItem[]>("/exercises", "GET"),
-    staleTime: 1000 * 60 * 10,
+    staleTime: QUERY_STALE_MS.long,
+    gcTime: QUERY_GC_MS.long,
+    refetchOnWindowFocus: false,
   });
 
   const progressOverviewQuery = useQuery({
-    queryKey: ["progress-overview"],
+    queryKey: queryKeys.progressOverview,
     queryFn: () =>
       apiRequest<ProgressOverviewResponse>("/progress/overview", "GET"),
+    staleTime: QUERY_STALE_MS.medium,
+    gcTime: QUERY_GC_MS.long,
+    refetchOnWindowFocus: false,
   });
 
   const exerciseProgressQuery = useQuery({
-    queryKey: ["progress-exercise", selectedExercise, weeks],
+    queryKey: queryKeys.progressExercise(selectedExercise, weeks),
     queryFn: () =>
       apiRequest<ExerciseProgressResponse>(
         `/progress/exercise/${encodeURIComponent(selectedExercise)}?weeks=${weeks}`,
         "GET",
       ),
     enabled: selectedExercise.trim().length > 0,
+    placeholderData: keepPreviousData,
+    staleTime: QUERY_STALE_MS.medium,
+    gcTime: QUERY_GC_MS.long,
+    refetchOnWindowFocus: false,
   });
 
   const library = exerciseLibraryQuery.data ?? [];
@@ -293,13 +304,13 @@ export function ProgressPage() {
           )}
           {analytics ? (
             <div className="mt-3 grid grid-cols-1 gap-2 text-xs sm:grid-cols-3">
-              <p className="ui-tile px-2 py-1 text-[var(--muted)]">
+              <p className="ui-tile px-2 py-1 text-(--muted)">
                 This week sessions: {analytics.thisWeek.sessionsCount}
               </p>
-              <p className="ui-tile px-2 py-1 text-[var(--muted)]">
+              <p className="ui-tile px-2 py-1 text-(--muted)">
                 Strongest lift: {analytics.thisWeek.strongestLiftKg}kg
               </p>
-              <p className="ui-tile px-2 py-1 text-[var(--muted)]">
+              <p className="ui-tile px-2 py-1 text-(--muted)">
                 Streak: {analytics.streakDays} days
               </p>
             </div>
@@ -315,10 +326,10 @@ export function ProgressPage() {
             records.map((pr) => (
               <article key={pr.exerciseName} className="ui-tile p-3">
                 <p className="font-semibold">{pr.exerciseName}</p>
-                <p className="text-sm text-[var(--muted)]">
+                <p className="text-sm text-(--muted)">
                   {pr.bestWeightKg}kg · Vol {pr.bestVolume.toFixed(0)}
                 </p>
-                <p className="text-xs text-[var(--muted)]">
+                <p className="text-xs text-(--muted)">
                   {new Date(pr.achievedAt).toLocaleDateString()}
                 </p>
               </article>
