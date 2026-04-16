@@ -682,11 +682,12 @@ async function computeAchievementProgress(
             MAX(session_avg.avg_rest) AS max_avg_rest
           FROM (
             SELECT
-              AVG(COALESCE(we."restSeconds", 0)) AS avg_rest
+              AVG(COALESCE(we."restSeconds", 0))::double precision AS avg_rest
             FROM "WorkoutEntry" AS we
             INNER JOIN "WorkoutSession" AS ws ON ws."id" = we."sessionId"
             WHERE ws."userId" = ${userId}
             GROUP BY we."sessionId"
+            HAVING COUNT(*) >= 3
           ) AS session_avg
         `
       : Promise.resolve([] as Array<{ max_avg_rest: number | null }>),
@@ -1236,33 +1237,37 @@ export async function consumeGamificationNotifications(
 ): Promise<GamificationNotificationItem[]> {
   const effectiveLimit = Math.max(MIN_NOTIFICATION_BATCH, Math.min(MAX_NOTIFICATION_BATCH, Math.floor(limit)));
 
-  const notifications = await prisma.$transaction(async (tx) => {
-    const unread = await tx.gamificationNotification.findMany({
-      where: {
-        userId,
-        readAt: null,
-      },
-      orderBy: {
-        createdAt: 'asc',
-      },
-      take: effectiveLimit,
-    });
-
-    if (unread.length > 0) {
-      await tx.gamificationNotification.updateMany({
-        where: {
-          id: {
-            in: unread.map((item) => item.id),
-          },
-        },
-        data: {
-          readAt: new Date(),
-        },
-      });
-    }
-
-    return unread;
-  });
+  // ── Q14: Atomic UPDATE ... RETURNING in a single round-trip ─────────
+  const notifications = await prisma.$queryRaw<
+    Array<{
+      id: string;
+      type: GamificationNotificationType;
+      title: string;
+      message: string;
+      payload: Prisma.JsonValue | null;
+      createdAt: Date;
+    }>
+  >`
+    WITH to_mark AS (
+      SELECT "id"
+      FROM "GamificationNotification"
+      WHERE "userId" = ${userId}
+        AND "readAt" IS NULL
+      ORDER BY "createdAt" ASC
+      LIMIT ${effectiveLimit}
+    )
+    UPDATE "GamificationNotification" gn
+    SET "readAt" = NOW()
+    FROM to_mark
+    WHERE gn."id" = to_mark."id"
+    RETURNING
+      gn."id",
+      gn."type",
+      gn."title",
+      gn."message",
+      gn."payload",
+      gn."createdAt"
+  `;
 
   if (notifications.length > 0) {
     invalidateCacheKey(cacheNamespaces.gamificationProfile, toProfileCacheKey(userId));

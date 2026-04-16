@@ -605,7 +605,7 @@ export function TrainingPlanPage() {
                                 )
                               }
                               disabled={exerciseIndex === 0}
-                              className="ui-btn ui-btn-ghost min-h-9 rounded-md p-1.5 text-(--muted) disabled:opacity-40"
+                              className="ui-btn ui-btn-ghost min-h-11 rounded-md p-2 text-(--muted) disabled:opacity-40 sm:min-h-9 sm:p-1.5"
                               aria-label="Move exercise up"
                             >
                               <ArrowUp size={14} />
@@ -623,7 +623,7 @@ export function TrainingPlanPage() {
                               disabled={
                                 exerciseIndex === day.exercises.length - 1
                               }
-                              className="ui-btn ui-btn-ghost min-h-9 rounded-md p-1.5 text-(--muted) disabled:opacity-40"
+                              className="ui-btn ui-btn-ghost min-h-11 rounded-md p-2 text-(--muted) disabled:opacity-40 sm:min-h-9 sm:p-1.5"
                               aria-label="Move exercise down"
                             >
                               <ArrowDown size={14} />
@@ -634,7 +634,7 @@ export function TrainingPlanPage() {
                               onClick={() =>
                                 removeExercise(index, exerciseIndex)
                               }
-                              className="ui-btn ui-btn-ghost min-h-9 rounded-md p-1.5 text-(--muted)"
+                              className="ui-btn ui-btn-ghost min-h-11 rounded-md p-2 text-(--muted) sm:min-h-9 sm:p-1.5"
                               aria-label="Remove exercise"
                             >
                               <Trash2 size={14} />

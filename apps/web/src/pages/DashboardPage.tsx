@@ -349,6 +349,7 @@ export function DashboardPage() {
               <Link
                 key={item.label}
                 to={item.to}
+                role="button"
                 className="ui-btn ui-btn-secondary inline-flex items-center justify-start gap-2"
               >
                 <Icon size={16} className="text-(--accent)" />
@@ -409,7 +410,7 @@ export function DashboardPage() {
                 </defs>
                 <CartesianGrid
                   strokeDasharray="4 4"
-                  stroke="rgba(148,163,184,0.25)"
+                  stroke="var(--chart-grid)"
                 />
                 <XAxis
                   dataKey="date"
@@ -446,6 +447,7 @@ export function DashboardPage() {
               type="button"
               role="tab"
               aria-selected={highlightsTab === "achievements"}
+              aria-controls="panel-achievements"
               onClick={() => setHighlightsTab("achievements")}
               className={`relative rounded-lg border px-2.5 py-1.5 pr-9 text-left transition-all ${
                 highlightsTab === "achievements"
@@ -465,6 +467,7 @@ export function DashboardPage() {
               type="button"
               role="tab"
               aria-selected={highlightsTab === "pr"}
+              aria-controls="panel-pr"
               onClick={() => setHighlightsTab("pr")}
               className={`relative rounded-lg border px-2.5 py-1.5 pr-9 text-left transition-all ${
                 highlightsTab === "pr"
@@ -483,7 +486,12 @@ export function DashboardPage() {
           </div>
 
           {highlightsTab === "achievements" ? (
-            <ul className="ui-scroll min-h-0 flex-1 space-y-2.5 overflow-y-auto pr-0.5">
+            <ul
+              id="panel-achievements"
+              role="tabpanel"
+              aria-label="Achievements"
+              className="ui-scroll min-h-0 flex-1 space-y-2.5 overflow-y-auto pr-0.5"
+            >
               {completedAchievements.length === 0 ? (
                 <li className="rounded-xl border border-dashed border-amber-300/60 bg-amber-100/30 px-3 py-3 text-sm text-amber-900/80">
                   No completed achievements yet. Keep training to unlock your
@@ -526,7 +534,12 @@ export function DashboardPage() {
               )}
             </ul>
           ) : (
-            <ul className="ui-scroll min-h-0 flex-1 space-y-2.5 overflow-y-auto pr-0.5">
+            <ul
+              id="panel-pr"
+              role="tabpanel"
+              aria-label="PR Highlights"
+              className="ui-scroll min-h-0 flex-1 space-y-2.5 overflow-y-auto pr-0.5"
+            >
               {prHighlights.length === 0 ? (
                 <li className="rounded-xl border border-dashed border-(--border) px-3 py-3 text-sm text-(--muted)">
                   No PR yet.
@@ -576,7 +589,7 @@ export function DashboardPage() {
               <BarChart data={data.weeklySummary}>
                 <CartesianGrid
                   strokeDasharray="4 4"
-                  stroke="rgba(148,163,184,0.25)"
+                  stroke="var(--chart-grid)"
                 />
                 <XAxis
                   dataKey="week"

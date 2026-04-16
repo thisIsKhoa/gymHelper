@@ -47,30 +47,87 @@ function weekKey(date: Date) {
   return `${copy.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
 }
 
-function dateOnlyKey(date: Date) {
-  return date.toISOString().slice(0, 10);
+// ── Q1: Merged volume-trend + bench-progress CTE ──────────────────────
+// Computes both aggregations in a single round-trip by sharing a
+// `user_sessions` CTE and returning tagged UNION ALL rows.
+
+type VolumeOrBenchRow = {
+  source: string;
+  session_date: Date | null;
+  total_volume: number | null;
+  week_start: Date | null;
+  max_weight_kg: number | null;
+};
+
+async function queryVolumeTrendAndBenchProgress(userId: string, fromDate: Date) {
+  return prisma.$queryRaw<VolumeOrBenchRow[]>`
+    WITH user_sessions AS (
+      SELECT ws."id", ws."sessionDate", ws."totalVolume"
+      FROM "WorkoutSession" AS ws
+      WHERE ws."userId" = ${userId}
+        AND ws."sessionDate" >= ${fromDate}
+    ),
+    volume_trend AS (
+      SELECT
+        us."sessionDate"  AS session_date,
+        SUM(us."totalVolume")::double precision AS total_volume
+      FROM user_sessions AS us
+      GROUP BY us."sessionDate"
+    ),
+    bench_weekly AS (
+      SELECT
+        date_trunc('week', us."sessionDate") AS week_start,
+        MAX(we."weightKg")::double precision  AS max_weight_kg
+      FROM "WorkoutEntry" AS we
+      INNER JOIN user_sessions AS us ON us."id" = we."sessionId"
+      WHERE we."weightKg" IS NOT NULL
+        AND LOWER(we."exerciseName") = 'bench press'
+      GROUP BY week_start
+    )
+    SELECT
+      'volume'  AS source,
+      vt.session_date,
+      vt.total_volume,
+      NULL::timestamptz AS week_start,
+      NULL::double precision AS max_weight_kg
+    FROM volume_trend AS vt
+
+    UNION ALL
+
+    SELECT
+      'bench'  AS source,
+      NULL::date        AS session_date,
+      NULL::double precision AS total_volume,
+      bw.week_start,
+      bw.max_weight_kg
+    FROM bench_weekly AS bw
+
+    ORDER BY source ASC, session_date ASC, week_start ASC
+  `;
 }
 
-function calculateStreakDays(sessionDatesDesc: Date[]): number {
-  const unique = Array.from(new Set(sessionDatesDesc.map((date) => dateOnlyKey(date))));
-  if (unique.length === 0) {
-    return 0;
-  }
+// ── Q4: Window-function streak computation ────────────────────────────
+// Calculates the current consecutive-day workout streak entirely in SQL
+// instead of transferring 180 rows to JS.
 
-  let streak = 1;
-  for (let index = 1; index < unique.length; index += 1) {
-    const prev = new Date(unique[index - 1] as string);
-    const current = new Date(unique[index] as string);
-    const diffDays = Math.round((prev.getTime() - current.getTime()) / 86400000);
+async function queryStreakDays(userId: string): Promise<number> {
+  const rows = await prisma.$queryRaw<Array<{ streak_days: number }>>`
+    WITH ordered AS (
+      SELECT DISTINCT "sessionDate"::date AS d
+      FROM "WorkoutSession"
+      WHERE "userId" = ${userId}
+      ORDER BY d DESC
+    ),
+    gaps AS (
+      SELECT d, d - (ROW_NUMBER() OVER (ORDER BY d DESC))::int AS grp
+      FROM ordered
+    )
+    SELECT COUNT(*)::int AS streak_days
+    FROM gaps
+    WHERE grp = (SELECT grp FROM gaps LIMIT 1)
+  `;
 
-    if (diffDays === 1) {
-      streak += 1;
-    } else {
-      break;
-    }
-  }
-
-  return streak;
+  return rows[0]?.streak_days ?? 0;
 }
 
 export async function getDashboardOverview(
@@ -89,33 +146,12 @@ export async function getDashboardOverview(
         ACHIEVEMENT_DEFINITIONS.map((achievement) => [achievement.code, achievement]),
       );
 
-      const [volumeRows, streakSessions, prs, latestBodyMetric, weeklyStatsDesc, strengthRows, benchRows, unlockedAchievements, muscleSkillRadar] =
+      const [volumeBenchRows, streakDays, prs, latestBodyMetric, weeklyStatsDesc, strengthRows, unlockedAchievements, muscleSkillRadar] =
         await Promise.all([
-          prisma.$queryRaw<
-            Array<{
-              session_date: Date;
-              total_volume: number | null;
-            }>
-          >`
-            SELECT
-              ws."sessionDate" AS session_date,
-              SUM(ws."totalVolume") AS total_volume
-            FROM "WorkoutSession" AS ws
-            WHERE ws."userId" = ${userId}
-              AND ws."sessionDate" >= ${fromDate}
-            GROUP BY ws."sessionDate"
-            ORDER BY ws."sessionDate" ASC
-          `,
-          prisma.workoutSession.findMany({
-            where: { userId },
-            select: {
-              sessionDate: true,
-            },
-            orderBy: {
-              sessionDate: 'desc',
-            },
-            take: 180,
-          }),
+          // Q1: Single CTE for volume trend + bench progress
+          queryVolumeTrendAndBenchProgress(userId, fromDate),
+          // Q4: SQL-computed streak
+          queryStreakDays(userId),
           prisma.personalRecord.findMany({
             where: { userId },
             select: {
@@ -152,30 +188,6 @@ export async function getDashboardOverview(
             take: effectiveWeeks,
           }),
           queryStrengthIncreaseRows(userId),
-          prisma.$queryRaw<
-            Array<{
-              week_start: Date;
-              max_weight_kg: number | null;
-            }>
-          >`
-            WITH user_sessions AS (
-              SELECT
-                ws."id",
-                ws."sessionDate"
-              FROM "WorkoutSession" AS ws
-              WHERE ws."userId" = ${userId}
-                AND ws."sessionDate" >= ${fromDate}
-            )
-            SELECT
-              date_trunc('week', us."sessionDate") AS week_start,
-              MAX(we."weightKg") AS max_weight_kg
-            FROM "WorkoutEntry" AS we
-            INNER JOIN user_sessions AS us ON us."id" = we."sessionId"
-            WHERE we."weightKg" IS NOT NULL
-              AND we."exerciseName" IN ('Bench Press', 'bench press')
-            GROUP BY week_start
-            ORDER BY week_start ASC
-          `,
           prisma.userAchievement.findMany({
             where: {
               userId,
@@ -203,6 +215,10 @@ export async function getDashboardOverview(
         ]);
       const weeklyStats = [...weeklyStatsDesc].reverse();
 
+      // ── Split the merged CTE result into volume + bench rows ──
+      const volumeRows = volumeBenchRows.filter((row) => row.source === 'volume');
+      const benchRows = volumeBenchRows.filter((row) => row.source === 'bench');
+
       const strengthIncrease = strengthRows.map((row) => {
         const startWeightKg = Number((row.start_weight_kg ?? 0).toFixed(2));
         const currentWeightKg = Number((row.current_weight_kg ?? 0).toFixed(2));
@@ -217,10 +233,9 @@ export async function getDashboardOverview(
 
       const currentWeek = weekKey(new Date());
       const currentWeekStat = weeklyStats.find((item) => item.isoWeek === currentWeek);
-      const streakDays = calculateStreakDays(streakSessions.map((session) => session.sessionDate));
 
       const volumeTrend = volumeRows.map((row) => ({
-        date: row.session_date.toISOString().slice(0, 10),
+        date: row.session_date!.toISOString().slice(0, 10),
         volume: Number((row.total_volume ?? 0).toFixed(2)),
       }));
 
@@ -247,7 +262,7 @@ export async function getDashboardOverview(
           strongestLiftKg: Number(week.strongestLiftKg.toFixed(2)),
         })),
         benchProgressByWeek: benchRows.map((row) => ({
-          week: weekKey(new Date(row.week_start)),
+          week: weekKey(new Date(row.week_start!)),
           maxWeightKg: Number((row.max_weight_kg ?? 0).toFixed(2)),
         })),
         strengthIncrease,

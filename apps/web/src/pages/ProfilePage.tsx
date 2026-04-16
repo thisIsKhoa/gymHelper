@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { Award, ShieldQuestion, Sparkles, Star, Key, Code, Check } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import {
   PolarAngleAxis,
@@ -139,6 +139,7 @@ export function ProfilePage() {
   const [newRecoveryCode, setNewRecoveryCode] = useState<string | null>(null);
   const [isCopied, setIsCopied] = useState(false);
   const [regenerateError, setRegenerateError] = useState("");
+  const recoveryModalRef = useRef<HTMLDivElement | null>(null);
 
   const { mutate: regenerateCode, isPending: isRegenerating } = useMutation({
     mutationFn: (password: string) =>
@@ -230,6 +231,65 @@ export function ProfilePage() {
       window.removeEventListener("gamification:level-up", handleLevelUp);
     };
   }, [handleLevelUp, handleProfileRefresh]);
+
+  useEffect(() => {
+    if (!showPasswordModal) {
+      return;
+    }
+
+    const container = recoveryModalRef.current;
+    if (!container) {
+      return;
+    }
+
+    const focusableSelector =
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
+    const focusFirst = () => {
+      const first = container.querySelector<HTMLElement>(focusableSelector);
+      first?.focus();
+    };
+
+    // Small delay so framer-motion animation renders the element
+    const timerId = window.setTimeout(focusFirst, 80);
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !newRecoveryCode) {
+        setShowPasswordModal(false);
+        return;
+      }
+
+      if (event.key !== "Tab") {
+        return;
+      }
+
+      const focusable = Array.from(
+        container.querySelectorAll<HTMLElement>(focusableSelector),
+      );
+
+      if (focusable.length === 0) {
+        return;
+      }
+
+      const first = focusable[0]!;
+      const last = focusable[focusable.length - 1]!;
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.clearTimeout(timerId);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [showPasswordModal, newRecoveryCode]);
 
   if (isLoading) {
     return <LoadingState message="Loading profile..." cardCount={3} />;
@@ -407,7 +467,7 @@ export function ProfilePage() {
             </div>
             <button
               onClick={() => setShowPasswordModal(true)}
-              className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90 whitespace-nowrap"
+              className="ui-btn ui-btn-primary whitespace-nowrap"
             >
               Regenerate Code
             </button>
@@ -419,6 +479,9 @@ export function ProfilePage() {
         {activeLevelUp ? (
           <motion.div
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Level Up"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -467,6 +530,9 @@ export function ProfilePage() {
         {showPasswordModal && (
           <motion.div
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="recovery-modal-title"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -475,6 +541,7 @@ export function ProfilePage() {
             }}
           >
             <motion.div
+              ref={recoveryModalRef}
               className="relative w-full max-w-sm overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface-solid)] p-6 shadow-2xl"
               initial={{ y: 20, scale: 0.95, opacity: 0 }}
               animate={{ y: 0, scale: 1, opacity: 1 }}
@@ -485,7 +552,7 @@ export function ProfilePage() {
                 <>
                   <div className="mb-4 flex items-center gap-2 text-[var(--accent)]">
                     <Key size={24} />
-                    <h3 className="text-lg font-bold text-[var(--foreground)]">Security Check</h3>
+                    <h3 id="recovery-modal-title" className="text-lg font-bold text-[var(--text)]">Security Check</h3>
                   </div>
                   <p className="mb-4 text-sm text-[var(--muted)]">
                     Please enter your current password to regenerate your recovery code. The old code will be instantly invalidated.
@@ -500,7 +567,7 @@ export function ProfilePage() {
                   <input
                     type="password"
                     placeholder="Current Password"
-                    className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3 text-sm focus:border-[var(--accent)] focus:outline-none"
+                    className="ui-input"
                     value={currentPassword}
                     onChange={(e) => setCurrentPassword(e.target.value)}
                   />
@@ -512,14 +579,14 @@ export function ProfilePage() {
                         setCurrentPassword("");
                         setRegenerateError("");
                       }}
-                      className="rounded-lg px-4 py-2 text-sm font-semibold text-[var(--muted)] hover:text-[var(--foreground)]"
+                      className="ui-btn ui-btn-ghost"
                     >
                       Cancel
                     </button>
                     <button
                       onClick={() => regenerateCode(currentPassword)}
                       disabled={isRegenerating || currentPassword.length < 8}
-                      className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                      className="ui-btn ui-btn-primary"
                     >
                       {isRegenerating ? "Verifying..." : "Regenerate"}
                     </button>
@@ -530,7 +597,7 @@ export function ProfilePage() {
                   <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-green-500/10 text-green-500">
                     <Code size={32} />
                   </div>
-                  <h3 className="text-lg font-bold text-[var(--foreground)]">New Recovery Code</h3>
+                  <h3 id="recovery-modal-title" className="text-lg font-bold text-[var(--text)]">New Recovery Code</h3>
                   <p className="mt-2 text-sm text-[var(--muted)]">
                     Save this 6-digit code in a secure place. It will only be shown once and your old code is no longer valid.
                   </p>
@@ -543,7 +610,7 @@ export function ProfilePage() {
 
                   <button
                     onClick={handleCopyCode}
-                    className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--accent)] p-3 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+                    className="ui-btn ui-btn-primary mt-4 flex w-full items-center justify-center gap-2"
                   >
                     {isCopied ? <Check size={18} /> : <Code size={18} />}
                     {isCopied ? "Copied!" : "Copy to Clipboard"}
@@ -554,7 +621,7 @@ export function ProfilePage() {
                       setNewRecoveryCode(null);
                       setShowPasswordModal(false);
                     }}
-                    className="mt-3 w-full rounded-xl p-3 text-sm font-semibold text-[var(--muted)] hover:bg-[var(--surface)] transition-colors"
+                    className="ui-btn ui-btn-ghost mt-3 w-full"
                   >
                     I have saved it
                   </button>

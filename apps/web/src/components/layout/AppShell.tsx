@@ -242,7 +242,7 @@ export function AppShell() {
         </main>
 
         <nav
-          aria-label="Primary"
+          aria-label="Bottom navigation"
           className="fixed inset-x-0 bottom-0 z-40 border-t border-[var(--border)] bg-[color:var(--surface)]/96 px-1.5 pb-[calc(0.4rem+env(safe-area-inset-bottom))] pt-1.5 shadow-[0_-14px_36px_rgba(15,23,42,0.22)] backdrop-blur-xl lg:hidden"
         >
           <ul className="mx-auto grid w-full max-w-[1120px] grid-cols-7 gap-0.5">
@@ -273,7 +273,7 @@ export function AppShell() {
         </nav>
 
         <nav
-          aria-label="Primary"
+          aria-label="Side navigation"
           className="fixed left-4 top-1/2 z-30 hidden -translate-y-1/2 rounded-2xl border border-[var(--border)] bg-[color:var(--surface)]/95 p-2 shadow-xl backdrop-blur lg:block"
         >
           <p className="ui-kicker px-3 pb-2 pt-1">Navigate</p>

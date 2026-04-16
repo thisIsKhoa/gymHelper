@@ -305,7 +305,7 @@ export function BodyMetricsPage() {
               <LineChart data={history}>
                 <CartesianGrid
                   strokeDasharray="4 4"
-                  stroke="rgba(148,163,184,0.25)"
+                  stroke="var(--chart-grid)"
                 />
                 <XAxis dataKey="loggedAt" />
                 <YAxis />
@@ -329,7 +329,7 @@ export function BodyMetricsPage() {
                 <Line
                   type="monotone"
                   dataKey="muscleMassKg"
-                  stroke="#22c55e"
+                  stroke="var(--success)"
                   strokeWidth={2}
                   connectNulls
                   name="Muscle Mass (kg)"

@@ -31,6 +31,7 @@ export function AuthPage() {
   const [generatedRecoveryCode, setGeneratedRecoveryCode] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isSuccessMessage, setIsSuccessMessage] = useState(false);
 
   const redirectPath =
     (location.state as { from?: string } | null)?.from ?? "/dashboard";
@@ -50,11 +51,13 @@ export function AuthPage() {
     event.preventDefault();
     setIsSubmitting(true);
     setError(null);
+    setIsSuccessMessage(false);
 
     try {
       if (mode === "forgot_password") {
         await apiRequest("/auth/reset-password", "POST", { email, newPassword: password, recoveryCode: recoveryCodeInput });
         setMode("login");
+        setIsSuccessMessage(true);
         setError("Password reset successfully. You can now login.");
         return;
       }
@@ -248,7 +251,7 @@ export function AuthPage() {
         </form>
 
         {error ? (
-          <p className={clsx("ui-status mt-3", error.includes("successfully") ? "ui-status-success" : "ui-status-danger")}>{error}</p>
+          <p className={clsx("ui-status mt-3", isSuccessMessage ? "ui-status-success" : "ui-status-danger")}>{error}</p>
         ) : null}
 
         {mode === "login" ? (

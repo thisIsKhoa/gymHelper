@@ -200,7 +200,7 @@ export function ProgressPage() {
             <LineChart data={points}>
               <CartesianGrid
                 strokeDasharray="4 4"
-                stroke="rgba(148,163,184,0.25)"
+                stroke="var(--chart-grid)"
               />
               <XAxis
                 dataKey="week"
@@ -245,7 +245,7 @@ export function ProgressPage() {
               <BarChart data={points}>
                 <CartesianGrid
                   strokeDasharray="4 4"
-                  stroke="rgba(148,163,184,0.25)"
+                  stroke="var(--chart-grid)"
                 />
                 <XAxis
                   dataKey="week"
@@ -279,7 +279,7 @@ export function ProgressPage() {
               <BarChart data={analytics?.weeks ?? []}>
                 <CartesianGrid
                   strokeDasharray="4 4"
-                  stroke="rgba(148,163,184,0.25)"
+                  stroke="var(--chart-grid)"
                 />
                 <XAxis
                   dataKey="isoWeek"

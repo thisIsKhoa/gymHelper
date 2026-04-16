@@ -50,14 +50,14 @@ export async function getExerciseProgressByWeek(userId: string, exerciseName: st
         )
         SELECT
           date_trunc('week', fs."sessionDate") AS week_start,
-          SUM(COALESCE(we."weightKg", 0) * we."sets") AS total_weighted_kg,
-          SUM(we."sets") AS total_sets,
-          MAX(COALESCE(we."weightKg", 0)) AS max_weight_kg,
-          SUM(COALESCE(we."volume", 0)) AS total_volume,
-          MAX(COALESCE(we."estimated1Rm", 0)) AS max_estimated_1rm
+          SUM(COALESCE(we."weightKg", 0)::double precision * we."sets")::double precision AS total_weighted_kg,
+          SUM(we."sets")::bigint AS total_sets,
+          MAX(COALESCE(we."weightKg", 0)::double precision) AS max_weight_kg,
+          SUM(COALESCE(we."volume", 0)::double precision) AS total_volume,
+          MAX(COALESCE(we."estimated1Rm", 0)::double precision) AS max_estimated_1rm
         FROM "WorkoutEntry" AS we
         INNER JOIN filtered_sessions AS fs ON fs."id" = we."sessionId"
-        WHERE we."exerciseName" = ${normalizedExerciseName}
+        WHERE LOWER(we."exerciseName") = LOWER(${normalizedExerciseName})
         GROUP BY week_start
         ORDER BY week_start ASC
       `;

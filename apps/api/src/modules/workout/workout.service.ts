@@ -130,74 +130,114 @@ function benchRestSecondsByReps(reps?: number | null): number {
   return 120;
 }
 
-async function upsertPersonalRecord(
+// ── Q6: Batched PR upserts ─────────────────────────────────────────────
+// Instead of N sequential findUnique + create/update calls, we:
+// 1. Aggregate the best weight/volume per exercise from input entries
+// 2. Fetch all existing PRs for those exercises in one query
+// 3. Batch update/create as needed
+
+type EntryPrCandidate = {
+  exerciseName: string;
+  weightKg: number;
+  volume: number;
+};
+
+async function batchUpsertPersonalRecords(
   tx: Prisma.TransactionClient,
   userId: string,
   sessionId: string,
   isoWeek: string,
-  exerciseName: string,
-  weightKg: number,
-  volume: number,
+  candidates: EntryPrCandidate[],
   achievedAt: Date,
 ): Promise<void> {
-  const current = await tx.personalRecord.findUnique({
-    where: {
-      userId_exerciseName: {
-        userId,
-        exerciseName,
-      },
-    },
-  });
+  // Aggregate best weight/volume per exercise from all entries
+  const bestByExercise = new Map<string, { weightKg: number; volume: number }>();
+  for (const candidate of candidates) {
+    const current = bestByExercise.get(candidate.exerciseName);
+    if (!current) {
+      bestByExercise.set(candidate.exerciseName, { weightKg: candidate.weightKg, volume: candidate.volume });
+    } else {
+      current.weightKg = Math.max(current.weightKg, candidate.weightKg);
+      current.volume = Math.max(current.volume, candidate.volume);
+    }
+  }
 
-  if (!current) {
-    const created = await tx.personalRecord.create({
-      data: {
-        userId,
-        exerciseName,
-        bestWeightKg: weightKg,
-        bestVolume: volume,
-        achievedAt,
-      },
-    });
-
-    await tx.personalRecordEvent.create({
-      data: {
-        userId,
-        sessionId,
-        exerciseName,
-        bestWeightKg: created.bestWeightKg,
-        bestVolume: created.bestVolume,
-        achievedAt,
-        isoWeek,
-      },
-    });
+  const exerciseNames = Array.from(bestByExercise.keys());
+  if (exerciseNames.length === 0) {
     return;
   }
 
-  const bestWeightKg = Math.max(current.bestWeightKg, weightKg);
-  const bestVolume = Math.max(current.bestVolume, volume);
+  // Single query to fetch all existing PRs
+  const existingPrs = await tx.personalRecord.findMany({
+    where: {
+      userId,
+      exerciseName: { in: exerciseNames },
+    },
+  });
 
-  if (bestWeightKg !== current.bestWeightKg || bestVolume !== current.bestVolume) {
-    const updated = await tx.personalRecord.update({
-      where: { id: current.id },
-      data: {
-        bestWeightKg,
-        bestVolume,
-        achievedAt,
-      },
-    });
+  const existingByName = new Map(existingPrs.map((pr) => [pr.exerciseName, pr]));
+  const prEvents: Array<{
+    userId: string;
+    sessionId: string;
+    exerciseName: string;
+    bestWeightKg: number;
+    bestVolume: number;
+    achievedAt: Date;
+    isoWeek: string;
+  }> = [];
 
-    await tx.personalRecordEvent.create({
-      data: {
+  for (const [exerciseName, best] of bestByExercise) {
+    const existing = existingByName.get(exerciseName);
+
+    if (!existing) {
+      await tx.personalRecord.create({
+        data: {
+          userId,
+          exerciseName,
+          bestWeightKg: best.weightKg,
+          bestVolume: best.volume,
+          achievedAt,
+        },
+      });
+      prEvents.push({
         userId,
         sessionId,
         exerciseName,
-        bestWeightKg: updated.bestWeightKg,
-        bestVolume: updated.bestVolume,
+        bestWeightKg: best.weightKg,
+        bestVolume: best.volume,
         achievedAt,
         isoWeek,
-      },
-    });
+      });
+      continue;
+    }
+
+    const nextBestWeightKg = Math.max(existing.bestWeightKg, best.weightKg);
+    const nextBestVolume = Math.max(existing.bestVolume, best.volume);
+
+    if (nextBestWeightKg !== existing.bestWeightKg || nextBestVolume !== existing.bestVolume) {
+      await tx.personalRecord.update({
+        where: { id: existing.id },
+        data: {
+          bestWeightKg: nextBestWeightKg,
+          bestVolume: nextBestVolume,
+          achievedAt,
+        },
+      });
+      prEvents.push({
+        userId,
+        sessionId,
+        exerciseName,
+        bestWeightKg: nextBestWeightKg,
+        bestVolume: nextBestVolume,
+        achievedAt,
+        isoWeek,
+      });
+    }
+  }
+
+  // Batch insert all PR events at once
+  if (prEvents.length > 0) {
+    await tx.personalRecordEvent.createMany({ data: prEvents });
   }
 }
 
@@ -368,72 +408,67 @@ export async function createWorkoutSession(userId: string, input: CreateWorkoutI
         }
       }
 
-      let totalVolume = 0;
-      let strongestLiftKg = 0;
-
-      for (const entry of input.entries) {
+      // ── Q5: Batch entry inserts ────────────────────────────────
+      const entryData = input.entries.map((entry) => {
         const volume = calculateVolume(entry.sets, entry.reps, entry.weightKg);
         const estimated1Rm = calculateEstimatedOneRm(entry.weightKg, entry.reps);
-        totalVolume += volume;
-        strongestLiftKg = Math.max(strongestLiftKg, entry.weightKg ?? 0);
-
-        await tx.workoutEntry.create({
-          data: {
-            sessionId: sessionRecord.id,
-            exerciseName: entry.exerciseName,
-            sets: entry.sets,
-            reps: entry.reps,
-            weightKg: entry.weightKg,
-            rpe: entry.rpe,
-            isCompleted: entry.isCompleted ?? true,
-            durationSec: entry.durationSec,
-            restSeconds: entry.restSeconds,
-            volume,
-            estimated1Rm,
-          },
-        });
-
-        await upsertPersonalRecord(
-          tx,
-          userId,
-          sessionRecord.id,
-          sessionIsoWeek,
-          entry.exerciseName,
-          entry.weightKg ?? 0,
+        return {
+          sessionId: sessionRecord.id,
+          exerciseName: entry.exerciseName,
+          sets: entry.sets,
+          reps: entry.reps,
+          weightKg: entry.weightKg,
+          rpe: entry.rpe,
+          isCompleted: entry.isCompleted ?? true,
+          durationSec: entry.durationSec,
+          restSeconds: entry.restSeconds,
           volume,
-          endedAt,
-        );
-      }
-
-      const existingWeekly = await tx.weeklyWorkoutStat.findUnique({
-        where: {
-          userId_isoWeek: {
-            userId,
-            isoWeek: sessionIsoWeek,
-          },
-        },
+          estimated1Rm,
+        };
       });
 
-      if (existingWeekly) {
-        await tx.weeklyWorkoutStat.update({
-          where: { id: existingWeekly.id },
-          data: {
-            totalVolume: Number((existingWeekly.totalVolume + totalVolume).toFixed(2)),
-            sessionsCount: isNewDailySession ? existingWeekly.sessionsCount + 1 : existingWeekly.sessionsCount,
-            strongestLiftKg: Math.max(existingWeekly.strongestLiftKg, strongestLiftKg),
-          },
-        });
-      } else {
-        await tx.weeklyWorkoutStat.create({
-          data: {
-            userId,
-            isoWeek: sessionIsoWeek,
-            totalVolume,
-            sessionsCount: 1,
-            strongestLiftKg,
-          },
+      await tx.workoutEntry.createMany({ data: entryData });
+
+      let totalVolume = 0;
+      let strongestLiftKg = 0;
+      const prCandidates: EntryPrCandidate[] = [];
+
+      for (const entry of entryData) {
+        totalVolume += entry.volume;
+        strongestLiftKg = Math.max(strongestLiftKg, entry.weightKg ?? 0);
+        prCandidates.push({
+          exerciseName: entry.exerciseName,
+          weightKg: entry.weightKg ?? 0,
+          volume: entry.volume,
         });
       }
+
+      // ── Q6: Batch PR upserts ──────────────────────────────────
+      await batchUpsertPersonalRecords(
+        tx,
+        userId,
+        sessionRecord.id,
+        sessionIsoWeek,
+        prCandidates,
+        endedAt,
+      );
+
+      // ── Q7: Single upsert for weekly stat ─────────────────────
+      // Raw SQL ON CONFLICT handles MAX(existing, new) for strongestLiftKg
+      // which Prisma's upsert API cannot express natively.
+      const weeklyVolume = Number(totalVolume.toFixed(2));
+      const sessionIncrement = isNewDailySession ? 1 : 0;
+
+      await tx.$executeRaw`
+        INSERT INTO "WeeklyWorkoutStat" ("id", "userId", "isoWeek", "totalVolume", "sessionsCount", "strongestLiftKg", "createdAt", "updatedAt")
+        VALUES (gen_random_uuid(), ${userId}, ${sessionIsoWeek}, ${weeklyVolume}, 1, ${strongestLiftKg}, NOW(), NOW())
+        ON CONFLICT ("userId", "isoWeek")
+        DO UPDATE SET
+          "totalVolume"     = "WeeklyWorkoutStat"."totalVolume" + ${weeklyVolume},
+          "sessionsCount"   = "WeeklyWorkoutStat"."sessionsCount" + ${sessionIncrement},
+          "strongestLiftKg" = GREATEST("WeeklyWorkoutStat"."strongestLiftKg", ${strongestLiftKg}),
+          "updatedAt"       = NOW()
+      `;
 
       const nextSessionTotalVolume = Number(((sessionRecord.totalVolume ?? 0) + totalVolume).toFixed(2));
 
@@ -956,9 +991,6 @@ export async function getWorkoutSuggestion(userId: string, exerciseName: string)
   );
 }
 
-function dateOnlyKey(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
 
 export async function getWorkoutAnalytics(userId: string, weeks = 8) {
   return readThroughCache(
@@ -982,31 +1014,23 @@ export async function getWorkoutAnalytics(userId: string, weeks = 8) {
       const currentWeek = toIsoWeek(new Date());
       const thisWeek = weeklyStats.find((item) => item.isoWeek === currentWeek) ?? null;
 
-      const sessions = await prisma.workoutSession.findMany({
-        where: { userId },
-        select: { sessionDate: true },
-        orderBy: { sessionDate: 'desc' },
-        take: 180,
-      });
-
-      const uniqueDates = Array.from(new Set(sessions.map((session) => dateOnlyKey(session.sessionDate))));
-      let streakDays = 0;
-
-      if (uniqueDates.length > 0) {
-        streakDays = 1;
-
-        for (let index = 1; index < uniqueDates.length; index += 1) {
-          const prev = new Date(uniqueDates[index - 1] as string);
-          const curr = new Date(uniqueDates[index] as string);
-          const diffDays = Math.round((prev.getTime() - curr.getTime()) / 86400000);
-
-          if (diffDays === 1) {
-            streakDays += 1;
-          } else {
-            break;
-          }
-        }
-      }
+      // ── Q9: SQL window-function streak (shared pattern with dashboard) ──
+      const streakRows = await prisma.$queryRaw<Array<{ streak_days: number }>>`
+        WITH ordered AS (
+          SELECT DISTINCT "sessionDate"::date AS d
+          FROM "WorkoutSession"
+          WHERE "userId" = ${userId}
+          ORDER BY d DESC
+        ),
+        gaps AS (
+          SELECT d, d - (ROW_NUMBER() OVER (ORDER BY d DESC))::int AS grp
+          FROM ordered
+        )
+        SELECT COUNT(*)::int AS streak_days
+        FROM gaps
+        WHERE grp = (SELECT grp FROM gaps LIMIT 1)
+      `;
+      const streakDays = streakRows[0]?.streak_days ?? 0;
 
       const strongestThisWeek = thisWeek?.strongestLiftKg ?? 0;
 
@@ -1028,6 +1052,7 @@ function escapeCsvValue(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
 }
 
+// ── Q10: Cursor-based CSV export ─────────────────────────────────────
 export async function* exportWorkoutHistoryCsvLines(userId: string): AsyncGenerator<string> {
   const header = [
     'sessionDate',
@@ -1044,12 +1069,13 @@ export async function* exportWorkoutHistoryCsvLines(userId: string): AsyncGenera
 
   yield `${header.join(',')}\n`;
 
-  let offset = 0;
+  let cursor: string | undefined;
 
   while (true) {
     const sessions = await prisma.workoutSession.findMany({
       where: { userId },
       select: {
+        id: true,
         sessionDate: true,
         entries: {
           select: {
@@ -1069,7 +1095,9 @@ export async function* exportWorkoutHistoryCsvLines(userId: string): AsyncGenera
         },
       },
       orderBy: [{ sessionDate: 'desc' }, { createdAt: 'desc' }],
-      skip: offset,
+      ...(cursor
+        ? { cursor: { id: cursor }, skip: 1 }
+        : {}),
       take: WORKOUT_EXPORT_BATCH_SIZE,
     });
 
@@ -1096,7 +1124,7 @@ export async function* exportWorkoutHistoryCsvLines(userId: string): AsyncGenera
       }
     }
 
-    offset += sessions.length;
+    cursor = sessions.at(-1)!.id;
 
     if (sessions.length < WORKOUT_EXPORT_BATCH_SIZE) {
       break;
